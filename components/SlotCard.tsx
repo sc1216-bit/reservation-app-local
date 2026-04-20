@@ -74,7 +74,7 @@ export default function SlotCard({ slot, selected, disabled = false, disabledRea
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-4.5 text-slate-900 sm:text-[14px]">
+        <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5 text-slate-900 sm:text-[14px]">
           {label}
         </h3>
         <span
@@ -101,6 +101,12 @@ export default function SlotCard({ slot, selected, disabled = false, disabledRea
           정원 {slot.reserved_count}/{slot.capacity}
         </p>
       </div>
+
+      {!selected && disabledReason && (
+        <p className="mt-1 truncate text-[10px] leading-4 text-rose-600 sm:text-[11px]">
+          {disabledReason}
+        </p>
+      )}
     </button>
   );
 }

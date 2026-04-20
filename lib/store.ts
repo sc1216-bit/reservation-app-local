@@ -30,10 +30,33 @@ type BulkUpdateSlotsInput = {
 function normalizeOpenAt(openAt?: string | null) {
   const value = openAt?.trim();
   if (!value) return null;
-  const parsed = new Date(value);
+
+  const match =
+    value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/) ??
+    value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/);
+
+  if (!match) {
+    throw new Error('신청 시작 시간이 올바르지 않습니다.');
+  }
+
+  const [, year, month, day, hour, minute, second = '00'] = match;
+
+  // 관리자 입력값은 한국시간(KST) 기준으로 해석
+  // KST(+09:00) -> UTC ISO 문자열로 저장
+  const utcMillis = Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour) - 9,
+    Number(minute),
+    Number(second)
+  );
+
+  const parsed = new Date(utcMillis);
   if (Number.isNaN(parsed.getTime())) {
     throw new Error('신청 시작 시간이 올바르지 않습니다.');
   }
+
   return parsed.toISOString();
 }
 
