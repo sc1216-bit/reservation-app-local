@@ -1,7 +1,7 @@
 'use client';
 
 import { ReservationSlot } from '@/lib/types';
-import { cn, getSlotLabel, getSlotTimeText } from '@/lib/utils';
+import { cn, getSlotLabel } from '@/lib/utils';
 import { getSlotTone } from '@/lib/slotTone';
 
 type Props = {
@@ -12,13 +12,34 @@ type Props = {
   onToggle?: (slotId: string) => void;
 };
 
+function formatTimeWithSinglePeriod(start: string, end: string) {
+  const formatStart = (value: string) => {
+    const date = new Date(value);
+    const hours = date.getHours();
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const period = hours < 12 ? '오전' : '오후';
+    const displayHour = hours % 12 === 0 ? 12 : hours % 12;
+    return `${period} ${displayHour}:${minutes}`;
+  };
+
+  const formatEnd = (value: string) => {
+    const date = new Date(value);
+    const hours = date.getHours();
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const displayHour = hours % 12 === 0 ? 12 : hours % 12;
+    return `${displayHour}:${minutes}`;
+  };
+
+  return `${formatStart(start)}~${formatEnd(end)}`;
+}
+
 export default function SlotCard({ slot, selected, disabled = false, disabledReason, onToggle }: Props) {
   const isClosed = slot.is_closed || slot.reserved_count >= slot.capacity;
   const tone = getSlotTone(slot);
   const isDisabled = disabled || isClosed;
   const isUnavailable = isDisabled && !selected && !isClosed;
   const label = getSlotLabel(slot);
-  const timeText = getSlotTimeText(slot);
+  const timeText = formatTimeWithSinglePeriod(slot.start_time, slot.end_time);
 
   return (
     <button
