@@ -192,26 +192,28 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
       .sort((a, b) => a.studentName.localeCompare(b.studentName, 'ko'));
   }, [myReservations, profile, slots]);
 
-  const hasDifferentCompletedSchedules = useMemo(() => {
-    if (groupedReservations.length < 2) return false;
+const hasDifferentCompletedSchedules = useMemo(() => {
+  if (groupedReservations.length < 2) return false;
 
-    const signatures = groupedReservations.map((group) => [...group.slotIds].sort().join('|'));
+  const signatures = groupedReservations.map((group) =>
+    [...group.slotIds].sort().join('|')
+  );
 
-    return new Set(signatures).size > 1;
-  }, [groupedReservations]);
+  return new Set(signatures).size > 1;
+}, [groupedReservations]);
 
-  const commonCompletedSlotIds = useMemo(() => {
-    if (groupedReservations.length < 2) return new Set<string>();
+const commonCompletedSlotIds = useMemo(() => {
+  if (groupedReservations.length < 2) return new Set<string>();
 
-    let common = new Set(groupedReservations[0].slotIds);
+  let common = new Set(groupedReservations[0].slotIds);
 
-    for (const group of groupedReservations.slice(1)) {
-      const current = new Set(group.slotIds);
-      common = new Set([...common].filter((slotId) => current.has(slotId)));
-    }
+  for (const group of groupedReservations.slice(1)) {
+    const current = new Set(group.slotIds);
+    common = new Set([...common].filter((slotId) => current.has(slotId)));
+  }
 
-    return common;
-  }, [groupedReservations]);
+  return common;
+}, [groupedReservations]);
 
   const groupedSlots = useMemo(() => {
     const map = new Map<string, ReservationSlot[]>();
@@ -615,28 +617,28 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
                         </button>
                       </div>
                       <ul className="mt-3 space-y-2 text-sm">
-                        {group.slotIds.map((slotId) => {
-                          const slot = slots.find((item) => item.id === slotId);
-                          const isDifferentLine =
-                            hasDifferentCompletedSchedules && !commonCompletedSlotIds.has(slotId);
+  {group.slotIds.map((slotId) => {
+    const slot = slots.find((item) => item.id === slotId);
+    const isDifferentLine =
+      hasDifferentCompletedSchedules && !commonCompletedSlotIds.has(slotId);
 
-                          return (
-                            <li
-                              key={slotId}
-                              className={`flex items-center gap-2 ${
-                                isDifferentLine ? 'font-semibold text-rose-600' : 'text-slate-700'
-                              }`}
-                            >
-                              <span>• {slot ? formatSelectedSlot(slot) : slotId}</span>
-                              {isDifferentLine && (
-                                <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-medium text-rose-700">
-                                  다른 일정
-                                </span>
-                              )}
-                            </li>
-                          );
-                        })}
-                      </ul>
+    return (
+      <li
+        key={slotId}
+        className={`flex items-center gap-2 ${
+          isDifferentLine ? 'text-rose-600 font-semibold' : 'text-slate-700'
+        }`}
+      >
+        <span>• {slot ? formatSelectedSlot(slot) : slotId}</span>
+        {isDifferentLine && (
+          <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-medium text-rose-700">
+            다른 일정
+          </span>
+        )}
+      </li>
+    );
+  })}
+</ul>
                     </div>
                   ))}
                 </div>
@@ -720,19 +722,22 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
                 </button>
               </aside>
 
-              <div className="space-y-3">
+              <div className="space-y-6">
                 {groupedSlots.map(([date, daySlots]) => {
                   const sample = daySlots[0];
                   return (
-                    <section key={date} className="rounded-xl border border-slate-200 bg-white p-3">
-                      <div className="mb-2">
-                        <h3 className="text-sm font-semibold text-slate-900">
+                    <section key={date} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="mb-4 flex items-center justify-between">
+                        <h3 className="text-lg font-semibold text-slate-900">
                           {formatKoreanDate(date, sample.day_of_week)}
                         </h3>
+                        <span className="rounded-full bg-white px-3 py-1 text-xs text-slate-600">
+                          {daySlots.length}개 시간대
+                        </span>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
-                        {daySlots.map((slot) => {
+                      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                        {daySlots.map((slot, index) => {
                           const selected = selectedSlotIds.includes(slot.id);
                           const openBlocked = !selected && !isOpenForSelection(slot);
                           const limitBlocked = !selected && selectedSlotIds.length >= REQUIRED_COUNT;
@@ -743,7 +748,7 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
                               : null;
 
                           return (
-                            <div key={slot.id}>
+                            <div key={slot.id} className={index % 2 === 0 ? '' : 'xl:translate-y-1'}>
                               <SlotCard
                                 slot={slot}
                                 selected={selected}
