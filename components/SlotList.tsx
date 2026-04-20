@@ -50,6 +50,11 @@ function sortSlots(a: ReservationSlot, b: ReservationSlot) {
   return compareSlots(a, b);
 }
 
+function getScheduleSignature(slotIds: string[]) {
+  if (!slotIds.length) return '__NONE__';
+  return [...slotIds].sort().join('|');
+}
+
 export default function SlotList({ initialSlots }: { initialSlots: ReservationSlot[] }) {
   const [slots, setSlots] = useState(initialSlots);
   const [step, setStep] = useState<Step>('auth');
@@ -157,14 +162,20 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
 
   const consentComplete = consents.every(Boolean);
 
-  const selectedSlots = useMemo(
-    () => slots.filter((slot) => selectedSlotIds.includes(slot.id)).sort(sortSlots),
-    [slots, selectedSlotIds]
-  );
+  const selectedSlotIdSet = useMemo(() => new Set(selectedSlotIds), [selectedSlotIds]);
 
   const selectedStudents = useMemo(
     () => profile?.students.filter((student) => selectedStudentNames.includes(student.studentName)) ?? [],
     [profile, selectedStudentNames]
+  );
+
+  const slotMap = useMemo(() => {
+    return new Map(slots.map((slot) => [slot.id, slot]));
+  }, [slots]);
+
+  const selectedSlots = useMemo(
+    () => slots.filter((slot) => selectedSlotIdSet.has(slot.id)).sort(sortSlots),
+    [slots, selectedSlotIdSet]
   );
 
   const groupedReservations = useMemo<ReservationGroup[]>(() => {
@@ -175,8 +186,8 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
         const reservations = myReservations
           .filter((reservation) => reservation.student_name === student.studentName)
           .sort((a, b) => {
-            const slotA = slots.find((slot) => slot.id === a.slot_id);
-            const slotB = slots.find((slot) => slot.id === b.slot_id);
+            const slotA = slotMap.get(a.slot_id);
+            const slotB = slotMap.get(b.slot_id);
             if (!slotA || !slotB) return 0;
             return sortSlots(slotA, slotB);
           });
@@ -190,13 +201,19 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
       })
       .filter((group) => group.reservations.length > 0)
       .sort((a, b) => a.studentName.localeCompare(b.studentName, 'ko'));
-  }, [myReservations, profile, slots]);
+  }, [myReservations, profile, slotMap]);
+
+  const groupedReservationMap = useMemo(() => {
+    return new Map(groupedReservations.map((group) => [group.studentName, group]));
+  }, [groupedReservations]);
+
+  const existingStudentNameSet = useMemo(() => {
+    return new Set(groupedReservations.map((group) => group.studentName));
+  }, [groupedReservations]);
 
   const hasDifferentCompletedSchedules = useMemo(() => {
     if (groupedReservations.length < 2) return false;
-
-    const signatures = groupedReservations.map((group) => [...group.slotIds].sort().join('|'));
-
+    const signatures = groupedReservations.map((group) => getScheduleSignature(group.slotIds));
     return new Set(signatures).size > 1;
   }, [groupedReservations]);
 
@@ -228,9 +245,7 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
     return profile.students
       .filter((student) => selectedStudentNames.includes(student.studentName))
       .map((student) => {
-        const existing = groupedReservations.find(
-          (group) => group.studentName === student.studentName
-        );
+        const existing = groupedReservationMap.get(student.studentName);
 
         return {
           studentName: student.studentName,
@@ -239,41 +254,42 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
           reservations: existing?.reservations ?? [],
         };
       });
-  }, [groupedReservations, profile, selectedStudentNames]);
+  }, [groupedReservationMap, profile, selectedStudentNames]);
+
+  const blockedExistingDates = useMemo(() => {
+    const dateSet = new Set<string>();
+
+    selectedExistingGroups.forEach((group) => {
+      group.slotIds.forEach((slotId) => {
+        const existingSlot = slotMap.get(slotId);
+        if (existingSlot) {
+          dateSet.add(existingSlot.date);
+        }
+      });
+    });
+
+    return dateSet;
+  }, [selectedExistingGroups, slotMap]);
 
   const hasMixedExistingSchedules = useMemo(() => {
     if (selectedExistingGroups.length < 2) return false;
-
-    const signatures = selectedExistingGroups.map((group) => {
-      if (!group.slotIds.length) return '__NONE__';
-      return [...group.slotIds].sort().join('|');
-    });
-
+    const signatures = selectedExistingGroups.map((group) => getScheduleSignature(group.slotIds));
     return new Set(signatures).size > 1;
   }, [selectedExistingGroups]);
 
   const hasOtherStudentDifferentExistingSchedule = useMemo(() => {
-    const currentSelectionSignature =
-      selectedSlotIds.length > 0 ? [...selectedSlotIds].sort().join('|') : '';
-
-    if (!currentSelectionSignature) return false;
+    const currentSelectionSignature = getScheduleSignature(selectedSlotIds);
+    if (currentSelectionSignature === '__NONE__') return false;
 
     const allStudentsExistingSignatures = (profile?.students ?? []).map((student) => {
-      const existing = groupedReservations.find(
-        (group) => group.studentName === student.studentName
-      );
-
-      if (!existing || existing.slotIds.length === 0) {
-        return '__NONE__';
-      }
-
-      return [...existing.slotIds].sort().join('|');
+      const existing = groupedReservationMap.get(student.studentName);
+      return getScheduleSignature(existing?.slotIds ?? []);
     });
 
     return allStudentsExistingSignatures.some(
       (signature) => signature !== '__NONE__' && signature !== currentSelectionSignature
     );
-  }, [groupedReservations, profile, selectedSlotIds]);
+  }, [groupedReservationMap, profile, selectedSlotIds]);
 
   function toggleConsent(index: number) {
     setConsents((prev) => prev.map((value, i) => (i === index ? !value : value)));
@@ -354,7 +370,7 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
   }
 
   function toggleSlot(slotId: string) {
-    const slot = slots.find((item) => item.id === slotId);
+    const slot = slotMap.get(slotId);
     if (!slot) return;
 
     setMessage(null);
@@ -375,8 +391,13 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
         return prev;
       }
 
+      if (blockedExistingDates.has(slot.date)) {
+        setError('이미 신청한 일정과 같은 날짜는 다시 선택할 수 없습니다. 기존 일정을 먼저 취소해주세요.');
+        return prev;
+      }
+
       const hasSameDate = prev.some((selectedId) => {
-        const selectedSlot = slots.find((item) => item.id === selectedId);
+        const selectedSlot = slotMap.get(selectedId);
         return selectedSlot?.date === slot.date;
       });
 
@@ -616,7 +637,7 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
                       </div>
                       <ul className="mt-3 space-y-2 text-sm">
                         {group.slotIds.map((slotId) => {
-                          const slot = slots.find((item) => item.id === slotId);
+                          const slot = slotMap.get(slotId);
                           const isDifferentLine =
                             hasDifferentCompletedSchedules && !commonCompletedSlotIds.has(slotId);
 
@@ -654,7 +675,8 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
                   <p className="text-sm font-semibold text-slate-700">신청할 학생 선택</p>
                   <div className="mt-3 space-y-2">
                     {profile.students.map((student) => {
-                      const hasExisting = groupedReservations.some((group) => group.studentName === student.studentName);
+                      const hasExisting = existingStudentNameSet.has(student.studentName);
+
                       return (
                         <label
                           key={student.studentName}
@@ -723,6 +745,7 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
               <div className="space-y-3">
                 {groupedSlots.map(([date, daySlots]) => {
                   const sample = daySlots[0];
+
                   return (
                     <section key={date} className="rounded-xl border border-slate-200 bg-white p-3">
                       <div className="mb-2">
@@ -733,21 +756,25 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
 
                       <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
                         {daySlots.map((slot) => {
-                          const selected = selectedSlotIds.includes(slot.id);
+                          const selected = selectedSlotIdSet.has(slot.id);
                           const openBlocked = !selected && !isOpenForSelection(slot);
+                          const existingDateBlocked = !selected && blockedExistingDates.has(slot.date);
                           const limitBlocked = !selected && selectedSlotIds.length >= REQUIRED_COUNT;
+
                           const disabledReason = openBlocked
                             ? `신청 시작: ${formatDateTime(slot.open_at as string)}`
-                            : limitBlocked
-                              ? '이미 5개의 일정을 선택했습니다.'
-                              : null;
+                            : existingDateBlocked
+                              ? '이미 신청한 일정과 같은 날짜입니다. 기존 일정을 먼저 취소해주세요.'
+                              : limitBlocked
+                                ? '이미 5개의 일정을 선택했습니다.'
+                                : null;
 
                           return (
                             <div key={slot.id}>
                               <SlotCard
                                 slot={slot}
                                 selected={selected}
-                                disabled={openBlocked || limitBlocked}
+                                disabled={openBlocked || existingDateBlocked || limitBlocked}
                                 disabledReason={disabledReason}
                                 onToggle={toggleSlot}
                               />

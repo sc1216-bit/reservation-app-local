@@ -12,25 +12,44 @@ type Props = {
   onToggle?: (slotId: string) => void;
 };
 
+function parseTimeParts(value: string) {
+  const timePart = value.includes('T') ? value.split('T')[1] : value;
+  const clean = timePart.trim().slice(0, 5); // HH:mm
+  const [hourText, minuteText] = clean.split(':');
+
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+
+  if (Number.isNaN(hour) || Number.isNaN(minute)) {
+    return null;
+  }
+
+  return { hour, minute };
+}
+
+function formatStartTime(value: string) {
+  const parsed = parseTimeParts(value);
+  if (!parsed) return value;
+
+  const { hour, minute } = parsed;
+  const period = hour < 12 ? '오전' : '오후';
+  const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+
+  return `${period} ${displayHour}:${String(minute).padStart(2, '0')}`;
+}
+
+function formatEndTime(value: string) {
+  const parsed = parseTimeParts(value);
+  if (!parsed) return value;
+
+  const { hour, minute } = parsed;
+  const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+
+  return `${displayHour}:${String(minute).padStart(2, '0')}`;
+}
+
 function formatTimeWithSinglePeriod(start: string, end: string) {
-  const formatStart = (value: string) => {
-    const date = new Date(value);
-    const hours = date.getHours();
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    const period = hours < 12 ? '오전' : '오후';
-    const displayHour = hours % 12 === 0 ? 12 : hours % 12;
-    return `${period} ${displayHour}:${minutes}`;
-  };
-
-  const formatEnd = (value: string) => {
-    const date = new Date(value);
-    const hours = date.getHours();
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    const displayHour = hours % 12 === 0 ? 12 : hours % 12;
-    return `${displayHour}:${minutes}`;
-  };
-
-  return `${formatStart(start)}~${formatEnd(end)}`;
+  return `${formatStartTime(start)}~${formatEndTime(end)}`;
 }
 
 export default function SlotCard({ slot, selected, disabled = false, disabledReason, onToggle }: Props) {
