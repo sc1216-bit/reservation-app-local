@@ -14,7 +14,7 @@ type Props = {
 
 function parseTimeParts(value: string) {
   const timePart = value.includes('T') ? value.split('T')[1] : value;
-  const clean = timePart.trim().slice(0, 5); // HH:mm
+  const clean = timePart.trim().slice(0, 5);
   const [hourText, minuteText] = clean.split(':');
 
   const hour = Number(hourText);
@@ -74,7 +74,7 @@ export default function SlotCard({ slot, selected, disabled = false, disabledRea
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <h3 className="min-w-0 flex-1 truncate text-[12px] font-semibold leading-4 text-slate-900 sm:text-[13px]">
+        <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-4.5 text-slate-900 sm:text-[14px]">
           {label}
         </h3>
         <span
@@ -89,13 +89,17 @@ export default function SlotCard({ slot, selected, disabled = false, disabledRea
                   : tone.badge
           )}
         >
-          {isClosed ? '마감' : selected ? '선택됨' : isUnavailable ? '선택불가' : '선택하기'}
+          {isClosed ? '마감' : selected ? '선택됨' : isUnavailable ? '불가' : '선택'}
         </span>
       </div>
 
-      <div className="mt-1 flex items-center justify-between gap-2 text-[10px] leading-4 text-slate-600 sm:text-[11px]">
-        <p className="min-w-0 truncate">{timeText}</p>
-        <p className="shrink-0">정원 {slot.reserved_count}/{slot.capacity}</p>
+      <div className="mt-1.5 flex items-center justify-between gap-2">
+        <p className="min-w-0 truncate text-[11px] font-medium leading-4 text-slate-700 sm:text-[12px]">
+          {timeText}
+        </p>
+        <p className="shrink-0 text-[10px] leading-4 text-slate-500 sm:text-[11px]">
+          정원 {slot.reserved_count}/{slot.capacity}
+        </p>
       </div>
     </button>
   );

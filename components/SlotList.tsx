@@ -173,6 +173,19 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
     return new Map(slots.map((slot) => [slot.id, slot]));
   }, [slots]);
 
+  const selectedDateSet = useMemo(() => {
+    const dateSet = new Set<string>();
+
+    selectedSlotIds.forEach((slotId) => {
+      const selectedSlot = slotMap.get(slotId);
+      if (selectedSlot) {
+        dateSet.add(selectedSlot.date);
+      }
+    });
+
+    return dateSet;
+  }, [selectedSlotIds, slotMap]);
+
   const selectedSlots = useMemo(
     () => slots.filter((slot) => selectedSlotIdSet.has(slot.id)).sort(sortSlots),
     [slots, selectedSlotIdSet]
@@ -759,22 +772,25 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
                           const selected = selectedSlotIdSet.has(slot.id);
                           const openBlocked = !selected && !isOpenForSelection(slot);
                           const existingDateBlocked = !selected && blockedExistingDates.has(slot.date);
+                          const sameDateBlocked = !selected && selectedDateSet.has(slot.date);
                           const limitBlocked = !selected && selectedSlotIds.length >= REQUIRED_COUNT;
 
                           const disabledReason = openBlocked
                             ? `신청 시작: ${formatDateTime(slot.open_at as string)}`
                             : existingDateBlocked
                               ? '이미 신청한 일정과 같은 날짜입니다. 기존 일정을 먼저 취소해주세요.'
-                              : limitBlocked
-                                ? '이미 5개의 일정을 선택했습니다.'
-                                : null;
+                              : sameDateBlocked
+                                ? '같은 날의 다른 시간은 이미 선택되어 있습니다.'
+                                : limitBlocked
+                                  ? '이미 5개의 일정을 선택했습니다.'
+                                  : null;
 
                           return (
                             <div key={slot.id}>
                               <SlotCard
                                 slot={slot}
                                 selected={selected}
-                                disabled={openBlocked || existingDateBlocked || limitBlocked}
+                                disabled={openBlocked || existingDateBlocked || sameDateBlocked || limitBlocked}
                                 disabledReason={disabledReason}
                                 onToggle={toggleSlot}
                               />
