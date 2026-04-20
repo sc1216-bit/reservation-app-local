@@ -63,44 +63,44 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-async function refreshSlots() {
-  try {
-    const res = await fetch('/api/admin/slots?scope=public', {
-      cache: 'no-store',
-    });
-
-    const text = await res.text();
-
-    let json: any = {};
+  async function refreshSlots() {
     try {
-      json = text ? JSON.parse(text) : {};
-    } catch {
-      throw new Error(`일정 목록 API가 JSON이 아닌 응답을 반환했습니다. 상태코드: ${res.status}`);
-    }
+      const res = await fetch('/api/admin/slots?scope=public', {
+        cache: 'no-store',
+      });
 
-    if (!res.ok) {
-      throw new Error(json.error || '일정 목록을 불러오지 못했습니다.');
-    }
+      const text = await res.text();
 
-    const nextSlots = Array.isArray(json.slots) ? json.slots : [];
-    setSlots(nextSlots);
-  } catch (err) {
-    setError(err instanceof Error ? err.message : '일정 목록을 불러오지 못했습니다.');
+      let json: any = {};
+      try {
+        json = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(`일정 목록 API가 JSON이 아닌 응답을 반환했습니다. 상태코드: ${res.status}`);
+      }
+
+      if (!res.ok) {
+        throw new Error(json.error || '일정 목록을 불러오지 못했습니다.');
+      }
+
+      const nextSlots = Array.isArray(json.slots) ? json.slots : [];
+      setSlots(nextSlots);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '일정 목록을 불러오지 못했습니다.');
+    }
   }
-}
 
   async function refreshMyReservations() {
-  const res = await fetch('/api/my-reservations', { cache: 'no-store' });
-  const json = await res.json();
+    const res = await fetch('/api/my-reservations', { cache: 'no-store' });
+    const json = await res.json();
 
-  if (!res.ok) {
-    throw new Error(json.error || '신청 내역 조회 실패');
+    if (!res.ok) {
+      throw new Error(json.error || '신청 내역 조회 실패');
+    }
+
+    const nextReservations = json.reservations ?? [];
+    setMyReservations(nextReservations);
+    return nextReservations as Reservation[];
   }
-
-  const nextReservations = json.reservations ?? [];
-  setMyReservations(nextReservations);
-  return nextReservations as Reservation[];
-}
 
   async function loadMe() {
     const res = await fetch('/api/me', { cache: 'no-store' });
@@ -144,16 +144,16 @@ async function refreshSlots() {
   }, []);
 
   useEffect(() => {
-  (async () => {
-    try {
-      await Promise.all([loadMe(), refreshSlots()]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '초기 정보를 불러오지 못했습니다.');
-    } finally {
-      setBooting(false);
-    }
-  })();
-}, []);
+    (async () => {
+      try {
+        await Promise.all([loadMe(), refreshSlots()]);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '초기 정보를 불러오지 못했습니다.');
+      } finally {
+        setBooting(false);
+      }
+    })();
+  }, []);
 
   const consentComplete = consents.every(Boolean);
 
@@ -169,6 +169,7 @@ async function refreshSlots() {
 
   const groupedReservations = useMemo<ReservationGroup[]>(() => {
     if (!profile) return [];
+
     return profile.students
       .map((student) => {
         const reservations = myReservations
@@ -191,6 +192,29 @@ async function refreshSlots() {
       .sort((a, b) => a.studentName.localeCompare(b.studentName, 'ko'));
   }, [myReservations, profile, slots]);
 
+const hasDifferentCompletedSchedules = useMemo(() => {
+  if (groupedReservations.length < 2) return false;
+
+  const signatures = groupedReservations.map((group) =>
+    [...group.slotIds].sort().join('|')
+  );
+
+  return new Set(signatures).size > 1;
+}, [groupedReservations]);
+
+const commonCompletedSlotIds = useMemo(() => {
+  if (groupedReservations.length < 2) return new Set<string>();
+
+  let common = new Set(groupedReservations[0].slotIds);
+
+  for (const group of groupedReservations.slice(1)) {
+    const current = new Set(group.slotIds);
+    common = new Set([...common].filter((slotId) => current.has(slotId)));
+  }
+
+  return common;
+}, [groupedReservations]);
+
   const groupedSlots = useMemo(() => {
     const map = new Map<string, ReservationSlot[]>();
     [...slots].sort(sortSlots).forEach((slot) => {
@@ -201,59 +225,103 @@ async function refreshSlots() {
   }, [slots]);
 
   const selectedExistingGroups = useMemo(() => {
-    return groupedReservations.filter((group) => selectedStudentNames.includes(group.studentName));
-  }, [groupedReservations, selectedStudentNames]);
+    if (!profile) return [];
+
+    return profile.students
+      .filter((student) => selectedStudentNames.includes(student.studentName))
+      .map((student) => {
+        const existing = groupedReservations.find(
+          (group) => group.studentName === student.studentName
+        );
+
+        return {
+          studentName: student.studentName,
+          schoolName: student.schoolName,
+          slotIds: existing?.slotIds ?? [],
+          reservations: existing?.reservations ?? [],
+        };
+      });
+  }, [groupedReservations, profile, selectedStudentNames]);
 
   const hasMixedExistingSchedules = useMemo(() => {
     if (selectedExistingGroups.length < 2) return false;
-    const signatures = selectedExistingGroups.map((group) => [...group.slotIds].sort().join('|'));
+
+    const signatures = selectedExistingGroups.map((group) => {
+      if (!group.slotIds.length) return '__NONE__';
+      return [...group.slotIds].sort().join('|');
+    });
+
     return new Set(signatures).size > 1;
   }, [selectedExistingGroups]);
+
+  const hasOtherStudentDifferentExistingSchedule = useMemo(() => {
+    const currentSelectionSignature =
+      selectedSlotIds.length > 0 ? [...selectedSlotIds].sort().join('|') : '';
+
+    if (!currentSelectionSignature) return false;
+
+    const allStudentsExistingSignatures = (profile?.students ?? []).map((student) => {
+      const existing = groupedReservations.find(
+        (group) => group.studentName === student.studentName
+      );
+
+      if (!existing || existing.slotIds.length === 0) {
+        return '__NONE__';
+      }
+
+      return [...existing.slotIds].sort().join('|');
+    });
+
+    return allStudentsExistingSignatures.some(
+      (signature) => signature !== '__NONE__' && signature !== currentSelectionSignature
+    );
+  }, [groupedReservations, profile, selectedSlotIds]);
 
   function toggleConsent(index: number) {
     setConsents((prev) => prev.map((value, i) => (i === index ? !value : value)));
   }
 
-async function handleConsentNext() {
-  setLoading(true);
-  setMessage(null);
-  setError(null);
+  async function handleConsentNext() {
+    setLoading(true);
+    setMessage(null);
+    setError(null);
 
-  try {
-    const res = await fetch('/api/me/consent', { method: 'POST' });
-    const text = await res.text();
-
-    let json: any = {};
     try {
-      json = text ? JSON.parse(text) : {};
-    } catch {
-      throw new Error(`동의 저장 API가 JSON이 아닌 응답을 반환했습니다. 상태코드: ${res.status}`);
-    }
+      const res = await fetch('/api/me/consent', { method: 'POST' });
+      const text = await res.text();
 
-    if (!res.ok) {
-      throw new Error(json.error || '동의 저장 실패');
-    }
+      let json: any = {};
+      try {
+        json = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(`동의 저장 API가 JSON이 아닌 응답을 반환했습니다. 상태코드: ${res.status}`);
+      }
 
-    if (profile?.students.length) {
-      setStep('slots');
-    } else {
-      setStep('profile');
+      if (!res.ok) {
+        throw new Error(json.error || '동의 저장 실패');
+      }
+
+      if (profile?.students.length) {
+        await Promise.all([refreshMyReservations(), refreshSlots()]);
+        setStep('slots');
+      } else {
+        setStep('profile');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '동의 저장 실패');
+    } finally {
+      setLoading(false);
     }
-  } catch (err) {
-    setError(err instanceof Error ? err.message : '동의 저장 실패');
-  } finally {
-    setLoading(false);
   }
-}
 
-async function handleProfileSaved(nextProfile: GuardianProfile) {
-  setProfile(nextProfile);
-  setSelectedStudentNames(nextProfile.students.map((student) => student.studentName));
-  setMessage(null);
-  setError(null);
-  await Promise.all([refreshMyReservations(), refreshSlots()]);
-  setStep('slots');
-}
+  async function handleProfileSaved(nextProfile: GuardianProfile) {
+    setProfile(nextProfile);
+    setSelectedStudentNames(nextProfile.students.map((student) => student.studentName));
+    setMessage(null);
+    setError(null);
+    await Promise.all([refreshMyReservations(), refreshSlots()]);
+    setStep('slots');
+  }
 
   async function handleLogout() {
     setLoading(true);
@@ -303,6 +371,7 @@ async function handleProfileSaved(nextProfile: GuardianProfile) {
       if (prev.includes(slotId)) {
         return prev.filter((id) => id !== slotId);
       }
+
       if (prev.length >= REQUIRED_COUNT) {
         setError('5개의 일정만 선택할 수 있습니다. 다른 일정을 취소한 뒤 다시 선택해주세요.');
         return prev;
@@ -327,16 +396,21 @@ async function handleProfileSaved(nextProfile: GuardianProfile) {
       setError('먼저 로그인해주세요.');
       return;
     }
+
     if (!selectedStudents.length) {
       setError('신청할 학생을 1명 이상 선택해주세요.');
       return;
     }
+
     if (selectedSlotIds.length !== REQUIRED_COUNT) {
       setError('5개의 일정을 모두 선택해야 신청할 수 있습니다.');
       return;
     }
-    if (hasMixedExistingSchedules) {
-      const confirmed = confirm('선택한 학생들의 기존 신청 일정이 서로 다릅니다. 그대로 새로 신청을 진행하시겠습니까?');
+
+    if (hasOtherStudentDifferentExistingSchedule) {
+      const confirmed = confirm(
+        '같은 보호자 계정의 다른 학생에게 이미 다른 신청 일정이 있습니다. 현재 다른 일정으로 다시 신청하면 학생별 일정이 달라집니다. 그대로 진행하시겠습니까?'
+      );
       if (!confirmed) return;
     }
 
@@ -349,9 +423,9 @@ async function handleProfileSaved(nextProfile: GuardianProfile) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-  slotIds: selectedSlotIds,
-  students: selectedStudents,
-}),
+          slotIds: selectedSlotIds,
+          students: selectedStudents,
+        }),
       });
 
       const json = await res.json();
@@ -360,7 +434,9 @@ async function handleProfileSaved(nextProfile: GuardianProfile) {
         throw new Error(json.error || '신청 처리 중 오류가 발생했습니다.');
       }
 
-      setMessage(`${selectedStudents.map((student) => student.studentName).join(', ')} 학생의 ${REQUIRED_COUNT}개 일정 신청이 완료되었습니다.`);
+      setMessage(
+        `${selectedStudents.map((student) => student.studentName).join(', ')} 학생의 ${REQUIRED_COUNT}개 일정 신청이 완료되었습니다.`
+      );
       setSelectedSlotIds([]);
       await Promise.all([refreshSlots(), refreshMyReservations()]);
     } catch (err) {
@@ -383,9 +459,9 @@ async function handleProfileSaved(nextProfile: GuardianProfile) {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-  studentNames: [studentName],
-  slotIds,
-}),
+          studentNames: [studentName],
+          slotIds,
+        }),
       });
 
       const json = await res.json();
@@ -540,12 +616,29 @@ async function handleProfileSaved(nextProfile: GuardianProfile) {
                           신청 취소 후 다시 선택
                         </button>
                       </div>
-                      <ul className="mt-3 space-y-2 text-sm text-slate-700">
-                        {group.slotIds.map((slotId) => {
-                          const slot = slots.find((item) => item.id === slotId);
-                          return <li key={slotId}>• {slot ? formatSelectedSlot(slot) : slotId}</li>;
-                        })}
-                      </ul>
+                      <ul className="mt-3 space-y-2 text-sm">
+  {group.slotIds.map((slotId) => {
+    const slot = slots.find((item) => item.id === slotId);
+    const isDifferentLine =
+      hasDifferentCompletedSchedules && !commonCompletedSlotIds.has(slotId);
+
+    return (
+      <li
+        key={slotId}
+        className={`flex items-center gap-2 ${
+          isDifferentLine ? 'text-rose-600 font-semibold' : 'text-slate-700'
+        }`}
+      >
+        <span>• {slot ? formatSelectedSlot(slot) : slotId}</span>
+        {isDifferentLine && (
+          <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-medium text-rose-700">
+            다른 일정
+          </span>
+        )}
+      </li>
+    );
+  })}
+</ul>
                     </div>
                   ))}
                 </div>
@@ -584,7 +677,13 @@ async function handleProfileSaved(nextProfile: GuardianProfile) {
                     })}
                   </div>
 
-                  {hasMixedExistingSchedules && (
+                  {hasOtherStudentDifferentExistingSchedule && (
+                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                      같은 보호자 계정의 다른 학생에게 이미 다른 신청 일정이 있습니다. 현재 다른 일정으로 다시 신청하면 학생별 일정이 달라질 수 있습니다.
+                    </div>
+                  )}
+
+                  {!hasOtherStudentDifferentExistingSchedule && hasMixedExistingSchedules && (
                     <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
                       선택한 학생들의 기존 신청 일정이 서로 다릅니다. 함께 다시 신청하기 전에 각 학생의 신청 완료 일정을 확인해주세요.
                     </div>
