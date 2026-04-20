@@ -2,7 +2,9 @@ export type ReservationSlot = {
   id: string;
   date: string;
   day_of_week: string;
-  time_label: string;
+  label: string;
+  start_time: string;
+  end_time: string;
   capacity: number;
   reserved_count: number;
   is_closed: boolean;

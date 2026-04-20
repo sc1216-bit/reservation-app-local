@@ -4,7 +4,9 @@ create table if not exists public.slots (
   id text primary key,
   date date not null,
   day_of_week text not null,
-  time_label text not null,
+  label text not null,
+  start_time text not null,
+  end_time text not null,
   capacity integer not null check (capacity > 0),
   reserved_count integer not null default 0 check (reserved_count >= 0),
   is_closed boolean not null default false,
@@ -13,8 +15,8 @@ create table if not exists public.slots (
   updated_at timestamptz not null default now()
 );
 
-create unique index if not exists slots_unique_date_time_label
-  on public.slots (date, time_label);
+create unique index if not exists slots_unique_date_label_time
+  on public.slots (date, label, start_time, end_time);
 
 create table if not exists public.reservations (
   id text primary key,
@@ -68,6 +70,7 @@ declare
   v_existing_same_day boolean;
   v_inserted_count integer := 0;
   v_student_names text[] := '{}';
+  v_slot_title text;
 begin
   if array_length(p_slot_ids, 1) is distinct from v_required_slot_count then
     raise exception '%개의 일정을 선택해야 신청할 수 있습니다.', v_required_slot_count;
@@ -129,11 +132,17 @@ begin
     select *
     from public.slots
     where id = any(p_slot_ids)
-    order by date asc, time_label asc
+    order by date asc, start_time asc, end_time asc, label asc
     for update
   loop
+    v_slot_title := trim(
+      coalesce(v_slot.label, '') || ' ' ||
+      coalesce(v_slot.start_time, '') || '-' ||
+      coalesce(v_slot.end_time, '')
+    );
+
     if v_slot.open_at is not null and v_slot.open_at > v_now then
-      raise exception '% % 일정은 아직 신청할 수 없습니다.', v_slot.date, v_slot.time_label;
+      raise exception '% % 일정은 아직 신청할 수 없습니다.', v_slot.date, v_slot_title;
     end if;
 
     if v_slot.is_closed or v_slot.reserved_count >= v_slot.capacity then
@@ -142,11 +151,11 @@ begin
           updated_at = now()
       where id = v_slot.id;
 
-      raise exception '% % 일정은 이미 마감되었습니다.', v_slot.date, v_slot.time_label;
+      raise exception '% % 일정은 이미 마감되었습니다.', v_slot.date, v_slot_title;
     end if;
 
     if v_slot.reserved_count + v_student_count > v_slot.capacity then
-      raise exception '% % 일정의 남은 자리가 부족합니다.', v_slot.date, v_slot.time_label;
+      raise exception '% % 일정의 남은 자리가 부족합니다.', v_slot.date, v_slot_title;
     end if;
 
     for v_student in
@@ -165,7 +174,7 @@ begin
       into v_existing_duplicate;
 
       if v_existing_duplicate then
-        raise exception '% 학생은 % % 일정에 이미 신청했습니다.', v_student.student_name, v_slot.date, v_slot.time_label;
+        raise exception '% 학생은 % % 일정에 이미 신청했습니다.', v_student.student_name, v_slot.date, v_slot_title;
       end if;
 
       select exists(
@@ -189,7 +198,7 @@ begin
     select *
     from public.slots
     where id = any(p_slot_ids)
-    order by date asc, time_label asc
+    order by date asc, start_time asc, end_time asc, label asc
   loop
     for v_student in
       select

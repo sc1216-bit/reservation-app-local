@@ -1,12 +1,14 @@
 import { Reservation, ReservationSlot, StudentInput } from './types';
-import { dayOfWeekKo, nowIso, randomId } from './utils';
+import { dayOfWeekKo, normalizeClockTime, nowIso, randomId } from './utils';
 import { supabase } from './supabase';
 
 const REQUIRED_SLOT_COUNT = 5;
 
 type SlotInput = {
   date: string;
-  timeLabel: string;
+  label: string;
+  startTime: string;
+  endTime: string;
   capacity: number;
   openAt?: string | null;
 };
@@ -18,7 +20,9 @@ type UpdateSlotInput = SlotInput & {
 type BulkUpdateSlotsInput = {
   ids: string[];
   date?: string;
-  timeLabel?: string;
+  label?: string;
+  startTime?: string;
+  endTime?: string;
   openAt?: string | null;
   applyOpenAt?: boolean;
 };
@@ -35,15 +39,25 @@ function normalizeOpenAt(openAt?: string | null) {
 
 function normalizeSlotInput(input: SlotInput) {
   if (!input.date?.trim()) throw new Error('날짜를 입력해주세요.');
-  if (!input.timeLabel?.trim()) throw new Error('일정 이름을 입력해주세요.');
+  if (!input.label?.trim()) throw new Error('반 이름을 입력해주세요.');
+  if (!input.startTime?.trim()) throw new Error('시작 시간을 입력해주세요.');
+  if (!input.endTime?.trim()) throw new Error('종료 시간을 입력해주세요.');
   if (!Number.isFinite(input.capacity) || input.capacity < 1) {
     throw new Error('정원은 1명 이상이어야 합니다.');
+  }
+
+  const startTime = normalizeClockTime(input.startTime);
+  const endTime = normalizeClockTime(input.endTime);
+  if (startTime >= endTime) {
+    throw new Error('종료 시간은 시작 시간보다 늦어야 합니다.');
   }
 
   return {
     date: input.date.trim(),
     day_of_week: dayOfWeekKo(input.date.trim()),
-    time_label: input.timeLabel.trim(),
+    label: input.label.trim(),
+    start_time: startTime,
+    end_time: endTime,
     capacity: Math.floor(input.capacity),
     open_at: normalizeOpenAt(input.openAt),
   };
@@ -57,7 +71,9 @@ function toSlotRow(input: SlotInput): ReservationSlot {
     id: randomId(),
     date: normalized.date,
     day_of_week: normalized.day_of_week,
-    time_label: normalized.time_label,
+    label: normalized.label,
+    start_time: normalized.start_time,
+    end_time: normalized.end_time,
     capacity: normalized.capacity,
     reserved_count: 0,
     is_closed: false,
@@ -67,12 +83,14 @@ function toSlotRow(input: SlotInput): ReservationSlot {
   };
 }
 
-async function ensureNoDuplicateSlot(input: { date: string; time_label: string }, ignoreId?: string) {
+async function ensureNoDuplicateSlot(input: { date: string; label: string; start_time: string; end_time: string }, ignoreId?: string) {
   let query = supabase
     .from('slots')
     .select('id')
     .eq('date', input.date)
-    .eq('time_label', input.time_label)
+    .eq('label', input.label)
+    .eq('start_time', input.start_time)
+    .eq('end_time', input.end_time)
     .limit(1);
 
   if (ignoreId) {
@@ -82,7 +100,7 @@ async function ensureNoDuplicateSlot(input: { date: string; time_label: string }
   const { data, error } = await query;
   if (error) throw new Error(error.message);
   if (data && data.length > 0) {
-    throw new Error('같은 날짜와 시간대의 일정이 이미 존재합니다.');
+    throw new Error('같은 날짜, 반 이름, 시간대의 일정이 이미 존재합니다.');
   }
 }
 
@@ -91,7 +109,9 @@ export async function listSlots() {
     .from('slots')
     .select('*')
     .order('date', { ascending: true })
-    .order('time_label', { ascending: true });
+    .order('start_time', { ascending: true })
+    .order('end_time', { ascending: true })
+    .order('label', { ascending: true });
 
   if (error) throw new Error(error.message);
   return (data ?? []) as ReservationSlot[];
@@ -107,9 +127,25 @@ export async function listReservations() {
   return (data ?? []) as Reservation[];
 }
 
+export async function listReservationsByPhone(phoneNumber: string) {
+  const normalizedPhone = phoneNumber.trim();
+  if (!normalizedPhone) {
+    return [] as Reservation[];
+  }
+
+  const { data, error } = await supabase
+    .from('reservations')
+    .select('*')
+    .eq('phone_number', normalizedPhone)
+    .order('created_at', { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Reservation[];
+}
+
 export async function createSlot(input: SlotInput) {
   const slot = toSlotRow(input);
-  await ensureNoDuplicateSlot({ date: slot.date, time_label: slot.time_label });
+  await ensureNoDuplicateSlot({ date: slot.date, label: slot.label, start_time: slot.start_time, end_time: slot.end_time });
 
   const { data, error } = await supabase
     .from('slots')
@@ -131,12 +167,12 @@ export async function createSlotsBulk(inputs: SlotInput[]) {
 
   for (const [index, input] of inputs.entries()) {
     const slot = toSlotRow(input);
-    const key = `${slot.date}__${slot.time_label}`;
+    const key = `${slot.date}__${slot.label}__${slot.start_time}__${slot.end_time}`;
     if (seen.has(key)) {
-      throw new Error(`${index + 2}행: 업로드 파일 안에 같은 날짜와 시간대가 중복되어 있습니다.`);
+      throw new Error(`${index + 2}행: 업로드 파일 안에 같은 날짜, 반 이름, 시간대가 중복되어 있습니다.`);
     }
     seen.add(key);
-    await ensureNoDuplicateSlot({ date: slot.date, time_label: slot.time_label });
+    await ensureNoDuplicateSlot({ date: slot.date, label: slot.label, start_time: slot.start_time, end_time: slot.end_time });
     created.push(slot);
   }
 
@@ -166,12 +202,14 @@ export async function updateSlot(input: UpdateSlotInput) {
     throw new Error(`총인원은 현재 신청 인원(${existing.reserved_count})보다 작을 수 없습니다.`);
   }
 
-  await ensureNoDuplicateSlot({ date: normalized.date, time_label: normalized.time_label }, input.id);
+  await ensureNoDuplicateSlot({ date: normalized.date, label: normalized.label, start_time: normalized.start_time, end_time: normalized.end_time }, input.id);
 
   const payload = {
     date: normalized.date,
     day_of_week: normalized.day_of_week,
-    time_label: normalized.time_label,
+    label: normalized.label,
+    start_time: normalized.start_time,
+    end_time: normalized.end_time,
     capacity: normalized.capacity,
     open_at: normalized.open_at,
     is_closed: existing.reserved_count >= normalized.capacity,
@@ -196,11 +234,13 @@ export async function updateSlotsBulk(input: BulkUpdateSlotsInput) {
   }
 
   const hasDate = typeof input.date === 'string' && input.date.trim().length > 0;
-  const hasTimeLabel = typeof input.timeLabel === 'string' && input.timeLabel.trim().length > 0;
+  const hasLabel = typeof input.label === 'string' && input.label.trim().length > 0;
+  const hasStartTime = typeof input.startTime === 'string' && input.startTime.trim().length > 0;
+  const hasEndTime = typeof input.endTime === 'string' && input.endTime.trim().length > 0;
   const applyOpenAt = Boolean(input.applyOpenAt);
 
-  if (!hasDate && !hasTimeLabel && !applyOpenAt) {
-    throw new Error('일괄 수정할 날짜, 제목 또는 신청 시작 설정을 입력해주세요.');
+  if (!hasDate && !hasLabel && !hasStartTime && !hasEndTime && !applyOpenAt) {
+    throw new Error('일괄 수정할 날짜, 반 이름, 시작/종료 시간 또는 신청 시작 설정을 입력해주세요.');
   }
 
   const { data: existingSlots, error: fetchError } = await supabase
@@ -215,47 +255,63 @@ export async function updateSlotsBulk(input: BulkUpdateSlotsInput) {
 
   const normalizedDate = hasDate ? input.date!.trim() : undefined;
   const normalizedDayOfWeek = hasDate ? dayOfWeekKo(normalizedDate!) : undefined;
-  const normalizedTimeLabel = hasTimeLabel ? input.timeLabel!.trim() : undefined;
+  const normalizedLabel = hasLabel ? input.label!.trim() : undefined;
+  const normalizedStartTime = hasStartTime ? normalizeClockTime(input.startTime!) : undefined;
+  const normalizedEndTime = hasEndTime ? normalizeClockTime(input.endTime!) : undefined;
   const normalizedOpenAt = applyOpenAt ? normalizeOpenAt(input.openAt) : undefined;
 
   const proposed = existingSlots.map((slot) => ({
     ...slot,
     date: normalizedDate ?? slot.date,
     day_of_week: normalizedDayOfWeek ?? slot.day_of_week,
-    time_label: normalizedTimeLabel ?? slot.time_label,
+    label: normalizedLabel ?? slot.label,
+    start_time: normalizedStartTime ?? slot.start_time,
+    end_time: normalizedEndTime ?? slot.end_time,
     open_at: applyOpenAt ? normalizedOpenAt ?? null : slot.open_at,
     updated_at: nowIso(),
   }));
 
+  for (const slot of proposed) {
+    if (slot.start_time >= slot.end_time) {
+      throw new Error('일괄 수정 결과에 종료 시간이 시작 시간보다 이른 일정이 있습니다.');
+    }
+  }
+
   const seen = new Set<string>();
   for (const slot of proposed) {
-    const key = `${slot.date}__${slot.time_label}`;
+    const key = `${slot.date}__${slot.label}__${slot.start_time}__${slot.end_time}`;
     if (seen.has(key)) {
-      throw new Error('일괄 수정 결과에 같은 날짜와 시간대의 일정이 중복됩니다.');
+      throw new Error('일괄 수정 결과에 같은 날짜, 반 이름, 시간대의 일정이 중복됩니다.');
     }
     seen.add(key);
   }
 
   for (const slot of proposed) {
-    await ensureNoDuplicateSlot({ date: slot.date, time_label: slot.time_label }, slot.id);
+    await ensureNoDuplicateSlot({ date: slot.date, label: slot.label, start_time: slot.start_time, end_time: slot.end_time }, slot.id);
   }
 
+  const updatedRows: ReservationSlot[] = [];
   for (const slot of proposed) {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('slots')
       .update({
         date: slot.date,
         day_of_week: slot.day_of_week,
-        time_label: slot.time_label,
+        label: slot.label,
+        start_time: slot.start_time,
+        end_time: slot.end_time,
         open_at: slot.open_at,
         updated_at: slot.updated_at,
       })
-      .eq('id', slot.id);
+      .eq('id', slot.id)
+      .select()
+      .single();
 
     if (error) throw new Error(error.message);
+    updatedRows.push(data as ReservationSlot);
   }
 
-  return proposed as ReservationSlot[];
+  return updatedRows;
 }
 
 export async function deleteSlot(id: string) {
@@ -316,6 +372,76 @@ export async function createReservations(input: { slotIds: string[]; phoneNumber
   return data;
 }
 
+export async function cancelReservationsByPhone(input: { phoneNumber: string; slotIds: string[]; studentNames: string[] }) {
+  const phoneNumber = input.phoneNumber.trim();
+  const slotIds = [...new Set(input.slotIds.filter(Boolean))];
+  const studentNames = [...new Set(input.studentNames.map((name) => name.trim()).filter(Boolean))];
+
+  if (!phoneNumber) {
+    throw new Error('전화번호가 필요합니다.');
+  }
+  if (!slotIds.length) {
+    throw new Error('취소할 일정이 없습니다.');
+  }
+  if (!studentNames.length) {
+    throw new Error('취소할 학생을 선택해주세요.');
+  }
+
+  const { data: reservations, error: fetchError } = await supabase
+    .from('reservations')
+    .select('*')
+    .eq('phone_number', phoneNumber)
+    .in('slot_id', slotIds)
+    .in('student_name', studentNames);
+
+  if (fetchError) throw new Error(fetchError.message);
+  if (!reservations || reservations.length === 0) {
+    throw new Error('취소할 신청 내역을 찾지 못했습니다.');
+  }
+
+  const reservationIds = reservations.map((item) => item.id);
+  const countsBySlot = reservations.reduce<Record<string, number>>((acc, reservation) => {
+    acc[reservation.slot_id] = (acc[reservation.slot_id] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const { data: targetSlots, error: slotsError } = await supabase
+    .from('slots')
+    .select('*')
+    .in('id', Object.keys(countsBySlot));
+
+  if (slotsError) throw new Error(slotsError.message);
+
+  const { error: deleteError } = await supabase
+    .from('reservations')
+    .delete()
+    .in('id', reservationIds);
+
+  if (deleteError) throw new Error(deleteError.message);
+
+  for (const slot of targetSlots ?? []) {
+    const decreaseBy = countsBySlot[slot.id] ?? 0;
+    const nextReservedCount = Math.max(0, (slot.reserved_count ?? 0) - decreaseBy);
+
+    const { error: updateError } = await supabase
+      .from('slots')
+      .update({
+        reserved_count: nextReservedCount,
+        is_closed: nextReservedCount >= slot.capacity,
+        updated_at: nowIso(),
+      })
+      .eq('id', slot.id);
+
+    if (updateError) throw new Error(updateError.message);
+  }
+
+  return {
+    canceledCount: reservations.length,
+    canceledSlotIds: Object.keys(countsBySlot),
+    canceledStudentNames: studentNames,
+  };
+}
+
 export async function deleteReservation(id: string) {
   if (!id?.trim()) {
     throw new Error('삭제할 신청 id가 없습니다.');
@@ -338,7 +464,7 @@ export async function deleteReservation(id: string) {
     .single();
 
   if (fetchSlotError || !slot) {
-    throw new Error('연결된 일정이 존재하지 않습니다.');
+    throw new Error('연결된 일정을 찾을 수 없습니다.');
   }
 
   const { error: deleteError } = await supabase
@@ -346,13 +472,10 @@ export async function deleteReservation(id: string) {
     .delete()
     .eq('id', id);
 
-  if (deleteError) {
-    throw new Error(deleteError.message);
-  }
+  if (deleteError) throw new Error(deleteError.message);
 
-  const nextReservedCount = Math.max(0, (slot.reserved_count ?? 0) - 1);
-
-  const { error: updateSlotError } = await supabase
+  const nextReservedCount = Math.max(0, slot.reserved_count - 1);
+  const { error: updateError } = await supabase
     .from('slots')
     .update({
       reserved_count: nextReservedCount,
@@ -361,7 +484,5 @@ export async function deleteReservation(id: string) {
     })
     .eq('id', slot.id);
 
-  if (updateSlotError) {
-    throw new Error(updateSlotError.message);
-  }
+  if (updateError) throw new Error(updateError.message);
 }

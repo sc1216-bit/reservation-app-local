@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
 import { isAdminAuthenticated } from '@/lib/admin';
 import { createSlotsBulk } from '@/lib/store';
+import { normalizeClockTime } from '@/lib/utils';
 
 function excelDateToYmd(value: number) {
   const parsed = XLSX.SSF.parse_date_code(value);
@@ -67,16 +68,39 @@ function normalizeOpenAt(value: unknown) {
   return raw || null;
 }
 
+function normalizeTime(value: unknown, rowNumber: number, fieldName: 'start_time' | 'end_time') {
+  if (typeof value === 'number') {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (!parsed) {
+      throw new Error(`${rowNumber}행: ${fieldName} 값을 해석할 수 없습니다.`);
+    }
+    return normalizeClockTime(`${String(parsed.H ?? 0).padStart(2, '0')}:${String(parsed.M ?? 0).padStart(2, '0')}`);
+  }
+
+  const raw = String(value ?? '').trim();
+  if (!raw) {
+    throw new Error(`${rowNumber}행: ${fieldName} 값을 입력해주세요.`);
+  }
+
+  return normalizeClockTime(raw);
+}
+
 function normalizeRow(row: Record<string, unknown>, index: number) {
   const rowNumber = index + 2;
   const date = normalizeDate(row.date, rowNumber);
-  const timeLabel = String(row.time_label ?? '').trim();
+  const label = String(row.label ?? '').trim();
+  const startTime = normalizeTime(row.start_time, rowNumber, 'start_time');
+  const endTime = normalizeTime(row.end_time, rowNumber, 'end_time');
   const capacityRaw = row.capacity;
   const openAt = normalizeOpenAt(row.open_at);
   const capacity = Number(capacityRaw);
 
-  if (!timeLabel || capacityRaw === '' || capacityRaw === null || capacityRaw === undefined) {
-    throw new Error(`${rowNumber}행: date, time_label, capacity 값을 모두 입력해주세요.`);
+  if (!label || capacityRaw === '' || capacityRaw === null || capacityRaw === undefined) {
+    throw new Error(`${rowNumber}행: date, label, start_time, end_time, capacity 값을 모두 입력해주세요.`);
+  }
+
+  if (startTime >= endTime) {
+    throw new Error(`${rowNumber}행: end_time은 start_time보다 늦어야 합니다.`);
   }
 
   if (!Number.isFinite(capacity) || capacity < 1) {
@@ -85,7 +109,9 @@ function normalizeRow(row: Record<string, unknown>, index: number) {
 
   return {
     date,
-    timeLabel,
+    label,
+    startTime,
+    endTime,
     capacity,
     openAt,
   };

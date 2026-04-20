@@ -1,125 +1,42 @@
 {
   "slots": [
     {
-      "id": "5v5g7am9yo4mo6r7k8t",
-      "date": "2026-04-25",
-      "day_of_week": "토",
-      "time_label": "2급(이론없음) 오전8시-9시",
+      "id": "slot1",
+      "date": "2026-04-20",
+      "day_of_week": "월",
+      "label": "2급(이론없음)",
+      "start_time": "07:50",
+      "end_time": "08:50",
       "capacity": 4,
       "reserved_count": 0,
       "is_closed": false,
       "open_at": null,
-      "created_at": "2026-04-20T05:28:05.693Z",
-      "updated_at": "2026-04-20T05:30:06.748Z"
+      "created_at": "2026-04-20T00:00:00.000Z",
+      "updated_at": "2026-04-20T00:00:00.000Z"
     },
     {
-      "id": "mc1eb07iocbmo6r7k8t",
-      "date": "2026-05-02",
-      "day_of_week": "토",
-      "time_label": "2급(이론없음) 오전8시-9시",
+      "id": "slot2",
+      "date": "2026-04-21",
+      "day_of_week": "화",
+      "label": "2급(이론없음)",
+      "start_time": "10:50",
+      "end_time": "11:50",
       "capacity": 4,
-      "reserved_count": 0,
-      "is_closed": false,
-      "open_at": "2026-04-23T03:30:00.000Z",
-      "created_at": "2026-04-20T05:28:05.693Z",
-      "updated_at": "2026-04-20T05:28:05.693Z"
-    },
-    {
-      "id": "020bogro8soxmo6r7k8t",
-      "date": "2026-05-09",
-      "day_of_week": "토",
-      "time_label": "2급(이론없음) 오전8시-9시",
-      "capacity": 4,
-      "reserved_count": 0,
-      "is_closed": false,
-      "open_at": "2026-04-23T03:30:00.000Z",
-      "created_at": "2026-04-20T05:28:05.693Z",
-      "updated_at": "2026-04-20T05:28:05.693Z"
-    },
-    {
-      "id": "2jwh1n5ar37mo6r7k8t",
-      "date": "2026-05-16",
-      "day_of_week": "토",
-      "time_label": "2급(이론없음) 오전8시-9시",
-      "capacity": 4,
-      "reserved_count": 0,
-      "is_closed": false,
-      "open_at": "2026-04-23T03:30:00.000Z",
-      "created_at": "2026-04-20T05:28:05.693Z",
-      "updated_at": "2026-04-20T05:28:05.693Z"
-    },
-    {
-      "id": "fzeydnbyqvmmo6r7k8t",
-      "date": "2026-05-23",
-      "day_of_week": "토",
-      "time_label": "2급(이론없음) 오전8시-9시",
-      "capacity": 4,
-      "reserved_count": 0,
-      "is_closed": false,
-      "open_at": "2026-04-23T03:30:00.000Z",
-      "created_at": "2026-04-20T05:28:05.693Z",
-      "updated_at": "2026-04-20T05:28:05.693Z"
-    },
-    {
-      "id": "c39la7uhevrmo6r7k8t",
-      "date": "2026-04-25",
-      "day_of_week": "토",
-      "time_label": "2급(이론없음) 오후3:50-4:50",
-      "capacity": 4,
-      "reserved_count": 0,
+      "reserved_count": 1,
       "is_closed": false,
       "open_at": null,
-      "created_at": "2026-04-20T05:28:05.693Z",
-      "updated_at": "2026-04-20T05:30:24.236Z"
-    },
-    {
-      "id": "b23wt63pegmo6r7k8u",
-      "date": "2026-05-02",
-      "day_of_week": "토",
-      "time_label": "2급(이론없음) 오후3:50-4:50",
-      "capacity": 4,
-      "reserved_count": 0,
-      "is_closed": false,
-      "open_at": "2026-04-23T03:30:00.000Z",
-      "created_at": "2026-04-20T05:28:05.694Z",
-      "updated_at": "2026-04-20T05:28:05.694Z"
-    },
-    {
-      "id": "0km1yd14pcemo6r7k8u",
-      "date": "2026-05-09",
-      "day_of_week": "토",
-      "time_label": "2급(이론없음) 오후3:50-4:50",
-      "capacity": 4,
-      "reserved_count": 0,
-      "is_closed": false,
-      "open_at": "2026-04-23T03:30:00.000Z",
-      "created_at": "2026-04-20T05:28:05.694Z",
-      "updated_at": "2026-04-20T05:28:05.694Z"
-    },
-    {
-      "id": "3z89tx0l6gkmo6r7k8u",
-      "date": "2026-05-16",
-      "day_of_week": "토",
-      "time_label": "2급(이론없음) 오후3:50-4:50",
-      "capacity": 4,
-      "reserved_count": 0,
-      "is_closed": false,
-      "open_at": "2026-04-23T03:30:00.000Z",
-      "created_at": "2026-04-20T05:28:05.694Z",
-      "updated_at": "2026-04-20T05:28:05.694Z"
-    },
-    {
-      "id": "3wzloumpqxpmo6r7k8u",
-      "date": "2026-05-23",
-      "day_of_week": "토",
-      "time_label": "2급(이론없음) 오후3:50-4:50",
-      "capacity": 4,
-      "reserved_count": 0,
-      "is_closed": false,
-      "open_at": "2026-04-23T03:30:00.000Z",
-      "created_at": "2026-04-20T05:28:05.694Z",
-      "updated_at": "2026-04-20T05:28:05.694Z"
+      "created_at": "2026-04-20T00:00:00.000Z",
+      "updated_at": "2026-04-20T00:00:00.000Z"
     }
   ],
-  "reservations": []
+  "reservations": [
+    {
+      "id": "reservation1",
+      "slot_id": "slot2",
+      "school_name": "예시중학교",
+      "student_name": "홍길동",
+      "phone_number": "010-1111-2222",
+      "created_at": "2026-04-20T00:00:00.000Z"
+    }
+  ]
 }

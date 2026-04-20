@@ -25,8 +25,8 @@ export async function POST(request: NextRequest) {
   const authed = await isAdminAuthenticated();
   if (!authed) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
-    const { date, timeLabel, capacity, openAt } = await request.json();
-    const slot = await createSlot({ date, timeLabel, capacity: Number(capacity), openAt });
+    const { date, label, startTime, endTime, capacity, openAt } = await request.json();
+    const slot = await createSlot({ date, label, startTime, endTime, capacity: Number(capacity), openAt });
     return NextResponse.json({ success: true, slot });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : '등록 실패' }, { status: 400 });
@@ -37,8 +37,8 @@ export async function PUT(request: NextRequest) {
   const authed = await isAdminAuthenticated();
   if (!authed) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
-    const { id, date, timeLabel, capacity, openAt } = await request.json();
-    const slot = await updateSlot({ id, date, timeLabel, capacity: Number(capacity), openAt });
+    const { id, date, label, startTime, endTime, capacity, openAt } = await request.json();
+    const slot = await updateSlot({ id, date, label, startTime, endTime, capacity: Number(capacity), openAt });
     return NextResponse.json({ success: true, slot });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : '수정 실패' }, { status: 400 });
@@ -53,7 +53,9 @@ export async function PATCH(request: NextRequest) {
     const slots = await updateSlotsBulk({
       ids: Array.isArray(body.ids) ? body.ids : [],
       date: typeof body.date === 'string' ? body.date : undefined,
-      timeLabel: typeof body.timeLabel === 'string' ? body.timeLabel : undefined,
+      label: typeof body.label === 'string' ? body.label : undefined,
+      startTime: typeof body.startTime === 'string' ? body.startTime : undefined,
+      endTime: typeof body.endTime === 'string' ? body.endTime : undefined,
       openAt: Object.prototype.hasOwnProperty.call(body, 'openAt') ? body.openAt : undefined,
       applyOpenAt: Object.prototype.hasOwnProperty.call(body, 'openAt'),
     });
