@@ -55,9 +55,21 @@ export default function AdminClient({
   const [error, setError] = useState<string | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [deletingSlotId, setDeletingSlotId] = useState<string | null>(null);
+  const [deletingReservationId, setDeletingReservationId] = useState<string | null>(null);
 
   const slotsById = useMemo(() => new Map(slots.map((slot) => [slot.id, slot])), [slots]);
   const allChecked = slots.length > 0 && checkedSlotIds.length === slots.length;
+  const isBusy =
+    submitting ||
+    uploading ||
+    bulkUpdating ||
+    bulkDeleting ||
+    deletingSlotId !== null ||
+    deletingReservationId !== null;
 
   useEffect(() => {
     if (openImmediately && openAt) setOpenAt('');
@@ -66,6 +78,17 @@ export default function AdminClient({
   useEffect(() => {
     if (bulkOpenMode !== 'datetime' && bulkOpenAt) setBulkOpenAt('');
   }, [bulkOpenMode, bulkOpenAt]);
+
+  useEffect(() => {
+    if (!message && !error) return;
+
+    const timer = setTimeout(() => {
+      setMessage(null);
+      setError(null);
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [message, error]);
 
   async function refreshData() {
     const [slotsRes, reservationsRes] = await Promise.all([
@@ -94,87 +117,143 @@ export default function AdminClient({
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     clearFeedback();
-    const method = editingId ? 'PUT' : 'POST';
-    const normalizedOpenAt = openImmediately ? null : openAt;
-    const payload = editingId
-      ? { id: editingId, date, label, startTime, endTime, capacity, openAt: normalizedOpenAt }
-      : { date, label, startTime, endTime, capacity, openAt: normalizedOpenAt };
-    const res = await fetch('/api/admin/slots', {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const json = await res.json();
-    if (!res.ok) {
-      setError(json.error || '처리 중 오류가 발생했습니다.');
-      return;
+    setSubmitting(true);
+
+    try {
+      const method = editingId ? 'PUT' : 'POST';
+      const normalizedOpenAt = openImmediately ? null : openAt;
+      const payload = editingId
+        ? { id: editingId, date, label, startTime, endTime, capacity, openAt: normalizedOpenAt }
+        : { date, label, startTime, endTime, capacity, openAt: normalizedOpenAt };
+
+      const res = await fetch('/api/admin/slots', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new Error(json.error || '처리 중 오류가 발생했습니다.');
+      }
+
+      setMessage(editingId ? '일정을 수정했습니다.' : '일정을 등록했습니다.');
+      resetForm();
+      await refreshData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '처리 중 오류가 발생했습니다.');
+    } finally {
+      setSubmitting(false);
     }
-    setMessage(editingId ? '일정을 수정했습니다.' : '일정을 등록했습니다.');
-    resetForm();
-    await refreshData();
   }
 
   async function handleDelete(id: string) {
     if (!confirm('정말 이 일정을 삭제하시겠습니까?')) return;
     clearFeedback();
-    const res = await fetch('/api/admin/slots', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
-    });
-    const json = await res.json();
-    if (!res.ok) return setError(json.error || '삭제 실패');
-    await refreshData();
-    setMessage('일정을 삭제했습니다.');
+    setDeletingSlotId(id);
+
+    try {
+      const res = await fetch('/api/admin/slots', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || '삭제 실패');
+
+      await refreshData();
+      setMessage('일정을 삭제했습니다.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '삭제 실패');
+    } finally {
+      setDeletingSlotId(null);
+    }
   }
 
   async function handleBulkDelete() {
-    if (checkedSlotIds.length === 0) return setError('삭제할 일정을 먼저 선택해주세요.');
+    if (checkedSlotIds.length === 0) {
+      setError('삭제할 일정을 먼저 선택해주세요.');
+      return;
+    }
     if (!confirm(`선택한 ${checkedSlotIds.length}개의 일정을 삭제하시겠습니까?`)) return;
+
     clearFeedback();
-    const res = await fetch('/api/admin/slots', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids: checkedSlotIds }),
-    });
-    const json = await res.json();
-    if (!res.ok) return setError(json.error || '일괄 삭제 실패');
+    setBulkDeleting(true);
     const count = checkedSlotIds.length;
-    setCheckedSlotIds([]);
-    setMessage(`${count}개의 일정을 삭제했습니다.`);
-    await refreshData();
+
+    try {
+      setMessage(`선택한 일정 ${count}개를 삭제하는 중입니다...`);
+
+      const res = await fetch('/api/admin/slots', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: checkedSlotIds }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || '일괄 삭제 실패');
+
+      setCheckedSlotIds([]);
+      await refreshData();
+      setMessage(`${count}개의 일정을 삭제했습니다.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '일괄 삭제 실패');
+      setMessage(null);
+    } finally {
+      setBulkDeleting(false);
+    }
   }
 
   async function handleBulkUpdate() {
-    if (checkedSlotIds.length === 0) return setError('수정할 일정을 먼저 선택해주세요.');
+    if (checkedSlotIds.length === 0) {
+      setError('수정할 일정을 먼저 선택해주세요.');
+      return;
+    }
     if (!bulkDate && !bulkLabel && !bulkStartTime && !bulkEndTime && bulkOpenMode === 'keep') {
-      return setError('일괄 수정할 날짜, 반 이름, 시작/종료 시간 또는 신청 시작 설정을 입력해주세요.');
+      setError('일괄 수정할 날짜, 반 이름, 시작/종료 시간 또는 신청 시작 설정을 입력해주세요.');
+      return;
     }
     if (bulkOpenMode === 'datetime' && !bulkOpenAt) {
-      return setError('변경할 신청 시작 일시를 입력해주세요.');
+      setError('변경할 신청 시작 일시를 입력해주세요.');
+      return;
     }
-    clearFeedback();
-    const payload: Record<string, unknown> = { ids: checkedSlotIds };
-    if (bulkDate) payload.date = bulkDate;
-    if (bulkLabel) payload.label = bulkLabel;
-    if (bulkStartTime) payload.startTime = bulkStartTime;
-    if (bulkEndTime) payload.endTime = bulkEndTime;
-    if (bulkOpenMode === 'immediate') payload.openAt = null;
-    else if (bulkOpenMode === 'datetime') payload.openAt = bulkOpenAt;
 
-    const res = await fetch('/api/admin/slots', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const json = await res.json();
-    if (!res.ok) return setError(json.error || '일괄 수정 실패');
-    setMessage(`${checkedSlotIds.length}개의 일정을 수정했습니다.`);
-    resetBulkForm();
-    await refreshData();
+    clearFeedback();
+    setBulkUpdating(true);
+    const count = checkedSlotIds.length;
+
+    try {
+      setMessage(`선택한 일정 ${count}개를 수정하는 중입니다...`);
+
+      const payload: Record<string, unknown> = { ids: checkedSlotIds };
+      if (bulkDate) payload.date = bulkDate;
+      if (bulkLabel) payload.label = bulkLabel;
+      if (bulkStartTime) payload.startTime = bulkStartTime;
+      if (bulkEndTime) payload.endTime = bulkEndTime;
+      if (bulkOpenMode === 'immediate') payload.openAt = null;
+      else if (bulkOpenMode === 'datetime') payload.openAt = bulkOpenAt;
+
+      const res = await fetch('/api/admin/slots', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || '일괄 수정 실패');
+
+      resetBulkForm();
+      await refreshData();
+      setMessage(`${count}개의 일정을 수정했습니다.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '일괄 수정 실패');
+      setMessage(null);
+    } finally {
+      setBulkUpdating(false);
+    }
   }
 
   function startEdit(slot: ReservationSlot) {
+    if (isBusy) return;
+
     setEditingId(slot.id);
     setDate(slot.date);
     setLabel(getSlotLabel(slot));
@@ -210,29 +289,41 @@ export default function AdminClient({
   }
 
   function toggleSlotChecked(id: string) {
+    if (isBusy) return;
     setCheckedSlotIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
   }
 
   function toggleAllChecked() {
+    if (isBusy) return;
     setCheckedSlotIds((prev) => (prev.length === slots.length ? [] : slots.map((slot) => slot.id)));
   }
 
   async function handleUpload(e: FormEvent) {
     e.preventDefault();
-    if (!uploadFile) return setError('업로드할 xlsx 파일을 선택해주세요.');
+    if (!uploadFile) {
+      setError('업로드할 xlsx 파일을 선택해주세요.');
+      return;
+    }
+
     setUploading(true);
     clearFeedback();
+
     try {
+      setMessage('엑셀 파일을 업로드하는 중입니다...');
+
       const formData = new FormData();
       formData.append('file', uploadFile);
+
       const res = await fetch('/api/admin/slots/import', { method: 'POST', body: formData });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || '일괄 업로드 실패');
-      setMessage(`${json.count}개의 일정을 일괄 등록했습니다.`);
+
       setUploadFile(null);
       await refreshData();
+      setMessage(`${json.count}개의 일정을 일괄 등록했습니다.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : '일괄 업로드 실패');
+      setMessage(null);
     } finally {
       setUploading(false);
     }
@@ -241,98 +332,132 @@ export default function AdminClient({
   async function handleDeleteReservation(id: string) {
     if (!confirm('정말 이 신청자를 삭제하시겠습니까?')) return;
     clearFeedback();
-    const res = await fetch('/api/admin/reservations', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
-    });
-    const json = await res.json();
-    if (!res.ok) return setError(json.error || '신청자 삭제 실패');
-    await refreshData();
-    setMessage('신청자를 삭제했습니다.');
+    setDeletingReservationId(id);
+
+    try {
+      const res = await fetch('/api/admin/reservations', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || '신청자 삭제 실패');
+
+      await refreshData();
+      setMessage('신청자를 삭제했습니다.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '신청자 삭제 실패');
+    } finally {
+      setDeletingReservationId(null);
+    }
   }
 
   return (
     <div className="grid gap-8 lg:grid-cols-[440px_1fr]">
       <section className="space-y-6">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold">{editingId ? '일정 수정' : '일정 등록'}</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-xl font-semibold">{editingId ? '일정 수정' : '일정 등록'}</h2>
+            {submitting && (
+              <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                저장 중...
+              </span>
+            )}
+          </div>
+
           {editingId && (
             <p className="mt-2 text-sm text-amber-700">
               현재 수정 모드입니다. 새 일정을 추가하려면 취소를 누르세요.
             </p>
           )}
+
           <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              required
-              className="w-full rounded-xl border border-slate-300 px-3 py-3"
-            />
-            <input
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              required
-              placeholder="반 이름"
-              className="w-full rounded-xl border border-slate-300 px-3 py-3"
-            />
-            <div className="grid gap-3 md:grid-cols-2">
+            <fieldset disabled={submitting || bulkUpdating || bulkDeleting || uploading} className="space-y-4 disabled:opacity-60">
               <input
-                type="time"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
                 required
                 className="w-full rounded-xl border border-slate-300 px-3 py-3"
               />
               <input
-                type="time"
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
                 required
+                placeholder="반 이름"
                 className="w-full rounded-xl border border-slate-300 px-3 py-3"
               />
-            </div>
-            <input
-              type="number"
-              min={1}
-              value={capacity}
-              onChange={(e) => setCapacity(Number(e.target.value))}
-              required
-              className="w-full rounded-xl border border-slate-300 px-3 py-3"
-            />
-            <div className="space-y-3">
-              <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+              <div className="grid gap-3 md:grid-cols-2">
                 <input
-                  type="checkbox"
-                  checked={openImmediately}
-                  onChange={(e) => setOpenImmediately(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300"
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  required
+                  className="w-full rounded-xl border border-slate-300 px-3 py-3"
                 />
-                즉시 신청 가능
-              </label>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">신청 시작 일시</label>
                 <input
-                  type="datetime-local"
-                  value={openAt}
-                  onChange={(e) => setOpenAt(e.target.value)}
-                  disabled={openImmediately}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 disabled:bg-slate-100 disabled:text-slate-400"
+                  type="time"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                  required
+                  className="w-full rounded-xl border border-slate-300 px-3 py-3"
                 />
               </div>
-            </div>
-            {message && <p className="text-sm text-emerald-600">{message}</p>}
-            {error && <p className="text-sm text-rose-600">{error}</p>}
+              <input
+                type="number"
+                min={1}
+                value={capacity}
+                onChange={(e) => setCapacity(Number(e.target.value))}
+                required
+                className="w-full rounded-xl border border-slate-300 px-3 py-3"
+              />
+              <div className="space-y-3">
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={openImmediately}
+                    onChange={(e) => setOpenImmediately(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  즉시 신청 가능
+                </label>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">신청 시작 일시</label>
+                  <input
+                    type="datetime-local"
+                    value={openAt}
+                    onChange={(e) => setOpenAt(e.target.value)}
+                    disabled={openImmediately}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-3 disabled:bg-slate-100 disabled:text-slate-400"
+                  />
+                </div>
+              </div>
+            </fieldset>
+
+            {message && (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                {message}
+              </div>
+            )}
+            {error && (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {error}
+              </div>
+            )}
+
             <div className="flex gap-2">
-              <button className="flex-1 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white">
-                {editingId ? '일정 수정' : '일정 등록'}
+              <button
+                disabled={submitting || bulkUpdating || bulkDeleting || uploading}
+                className="flex-1 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:bg-slate-300"
+              >
+                {submitting ? (editingId ? '수정 중...' : '등록 중...') : editingId ? '일정 수정' : '일정 등록'}
               </button>
               {editingId && (
                 <button
                   type="button"
                   onClick={resetForm}
-                  className="rounded-xl border border-slate-300 px-4 py-3 text-sm"
+                  disabled={submitting || bulkUpdating || bulkDeleting || uploading}
+                  className="rounded-xl border border-slate-300 px-4 py-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
                 >
                   취소
                 </button>
@@ -342,15 +467,25 @@ export default function AdminClient({
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold">xlsx 일괄 업로드</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-xl font-semibold">xlsx 일괄 업로드</h2>
+            {uploading && (
+              <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                업로드 중...
+              </span>
+            )}
+          </div>
+
           <form onSubmit={handleUpload} className="mt-4 space-y-4">
-            <input type="file" accept=".xlsx,.xls" onChange={handleFileChange} className="block w-full text-sm" />
-            <button
-              disabled={uploading}
-              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:bg-slate-100"
-            >
-              {uploading ? '업로드 중...' : '엑셀로 일정 일괄 등록'}
-            </button>
+            <fieldset disabled={uploading || submitting || bulkUpdating || bulkDeleting} className="space-y-4 disabled:opacity-60">
+              <input type="file" accept=".xlsx,.xls" onChange={handleFileChange} className="block w-full text-sm" />
+              <button
+                disabled={uploading}
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:bg-slate-100"
+              >
+                {uploading ? '업로드 중...' : '엑셀로 일정 일괄 등록'}
+              </button>
+            </fieldset>
           </form>
         </div>
       </section>
@@ -364,99 +499,113 @@ export default function AdminClient({
               <button
                 type="button"
                 onClick={handleBulkDelete}
-                disabled={checkedSlotIds.length === 0}
+                disabled={checkedSlotIds.length === 0 || isBusy}
                 className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
               >
-                선택 일정 삭제
+                {bulkDeleting ? '삭제 중...' : '선택 일정 삭제'}
               </button>
             </div>
           </div>
 
+          {(bulkUpdating || bulkDeleting) && (
+            <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+              {bulkUpdating
+                ? `선택한 일정 ${checkedSlotIds.length}개를 수정하는 중입니다...`
+                : `선택한 일정 ${checkedSlotIds.length}개를 삭제하는 중입니다...`}
+            </div>
+          )}
+
           <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <h3 className="text-sm font-semibold text-slate-900">선택 일정 일괄 수정</h3>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <input
-                type="date"
-                value={bulkDate}
-                onChange={(e) => setBulkDate(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-3 py-3"
-              />
-              <input
-                value={bulkLabel}
-                onChange={(e) => setBulkLabel(e.target.value)}
-                placeholder="새 반 이름"
-                className="w-full rounded-xl border border-slate-300 px-3 py-3"
-              />
-              <input
-                type="time"
-                value={bulkStartTime}
-                onChange={(e) => setBulkStartTime(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-3 py-3"
-              />
-              <input
-                type="time"
-                value={bulkEndTime}
-                onChange={(e) => setBulkEndTime(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-3 py-3"
-              />
-            </div>
-            <div className="mt-3 space-y-3 rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-sm font-medium text-slate-700">신청 시작 설정</p>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
+
+            <fieldset disabled={bulkUpdating || bulkDeleting || submitting || uploading} className="mt-4 space-y-4 disabled:opacity-60">
+              <div className="grid gap-3 md:grid-cols-2">
                 <input
-                  type="radio"
-                  name="bulk-open-mode"
-                  checked={bulkOpenMode === 'keep'}
-                  onChange={() => setBulkOpenMode('keep')}
-                  className="h-4 w-4"
+                  type="date"
+                  value={bulkDate}
+                  onChange={(e) => setBulkDate(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-3"
                 />
-                현재 설정 유지
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
                 <input
-                  type="radio"
-                  name="bulk-open-mode"
-                  checked={bulkOpenMode === 'immediate'}
-                  onChange={() => setBulkOpenMode('immediate')}
-                  className="h-4 w-4"
+                  value={bulkLabel}
+                  onChange={(e) => setBulkLabel(e.target.value)}
+                  placeholder="새 반 이름"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-3"
                 />
-                선택 일정 모두 즉시 신청 가능으로 변경
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
                 <input
-                  type="radio"
-                  name="bulk-open-mode"
-                  checked={bulkOpenMode === 'datetime'}
-                  onChange={() => setBulkOpenMode('datetime')}
-                  className="h-4 w-4"
+                  type="time"
+                  value={bulkStartTime}
+                  onChange={(e) => setBulkStartTime(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-3"
                 />
-                특정 신청 시작 일시로 변경
-              </label>
-              <input
-                type="datetime-local"
-                value={bulkOpenAt}
-                onChange={(e) => setBulkOpenAt(e.target.value)}
-                disabled={bulkOpenMode !== 'datetime'}
-                className="w-full rounded-xl border border-slate-300 px-3 py-3 disabled:bg-slate-100 disabled:text-slate-400"
-              />
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={handleBulkUpdate}
-                disabled={checkedSlotIds.length === 0}
-                className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                선택 일정 일괄 수정
-              </button>
-              <button
-                type="button"
-                onClick={resetBulkForm}
-                className="rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-700"
-              >
-                일괄 수정 입력 초기화
-              </button>
-            </div>
+                <input
+                  type="time"
+                  value={bulkEndTime}
+                  onChange={(e) => setBulkEndTime(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-3"
+                />
+              </div>
+
+              <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+                <p className="text-sm font-medium text-slate-700">신청 시작 설정</p>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="radio"
+                    name="bulk-open-mode"
+                    checked={bulkOpenMode === 'keep'}
+                    onChange={() => setBulkOpenMode('keep')}
+                    className="h-4 w-4"
+                  />
+                  현재 설정 유지
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="radio"
+                    name="bulk-open-mode"
+                    checked={bulkOpenMode === 'immediate'}
+                    onChange={() => setBulkOpenMode('immediate')}
+                    className="h-4 w-4"
+                  />
+                  선택 일정 모두 즉시 신청 가능으로 변경
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="radio"
+                    name="bulk-open-mode"
+                    checked={bulkOpenMode === 'datetime'}
+                    onChange={() => setBulkOpenMode('datetime')}
+                    className="h-4 w-4"
+                  />
+                  특정 신청 시작 일시로 변경
+                </label>
+                <input
+                  type="datetime-local"
+                  value={bulkOpenAt}
+                  onChange={(e) => setBulkOpenAt(e.target.value)}
+                  disabled={bulkOpenMode !== 'datetime'}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-3 disabled:bg-slate-100 disabled:text-slate-400"
+                />
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleBulkUpdate}
+                  disabled={checkedSlotIds.length === 0 || isBusy}
+                  className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {bulkUpdating ? '일괄 수정 중...' : '선택 일정 일괄 수정'}
+                </button>
+                <button
+                  type="button"
+                  onClick={resetBulkForm}
+                  disabled={isBusy}
+                  className="rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-700 disabled:bg-slate-100 disabled:text-slate-400"
+                >
+                  일괄 수정 입력 초기화
+                </button>
+              </div>
+            </fieldset>
           </div>
 
           <div className="mt-4 overflow-x-auto">
@@ -469,6 +618,7 @@ export default function AdminClient({
                       checked={allChecked}
                       onChange={toggleAllChecked}
                       aria-label="전체 선택"
+                      disabled={isBusy}
                       className="h-4 w-4 rounded border-slate-300"
                     />
                   </th>
@@ -497,6 +647,7 @@ export default function AdminClient({
                             type="checkbox"
                             checked={isChecked}
                             onChange={() => toggleSlotChecked(slot.id)}
+                            disabled={isBusy}
                             className="h-4 w-4 rounded border-slate-300"
                           />
                         </td>
@@ -522,21 +673,24 @@ export default function AdminClient({
                             <button
                               type="button"
                               onClick={() => startEdit(slot)}
-                              className="rounded-lg border border-slate-300 px-3 py-1.5"
+                              disabled={isBusy}
+                              className="rounded-lg border border-slate-300 px-3 py-1.5 disabled:bg-slate-100 disabled:text-slate-400"
                             >
                               수정
                             </button>
                             <button
                               type="button"
                               onClick={() => handleDelete(slot.id)}
-                              className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-rose-700"
+                              disabled={isBusy}
+                              className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-rose-700 disabled:bg-slate-100 disabled:text-slate-400"
                             >
-                              삭제
+                              {deletingSlotId === slot.id ? '삭제 중...' : '삭제'}
                             </button>
                             <button
                               type="button"
                               onClick={() => setExpandedSlotId(expanded ? null : slot.id)}
-                              className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-blue-700"
+                              disabled={isBusy}
+                              className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-blue-700 disabled:bg-slate-100 disabled:text-slate-400"
                             >
                               {expanded ? '닫기' : '신청자 보기'}
                             </button>
@@ -578,9 +732,10 @@ export default function AdminClient({
                                             <button
                                               type="button"
                                               onClick={() => handleDeleteReservation(reservation.id)}
-                                              className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-rose-700"
+                                              disabled={isBusy}
+                                              className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-rose-700 disabled:bg-slate-100 disabled:text-slate-400"
                                             >
-                                              삭제
+                                              {deletingReservationId === reservation.id ? '삭제 중...' : '삭제'}
                                             </button>
                                           </td>
                                         </tr>

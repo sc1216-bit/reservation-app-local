@@ -596,7 +596,7 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
       )}
 
       {step === 'slots' && profile && (
-        <section className="space-y-6">
+        <section className="space-y-6 pb-24 lg:pb-0">
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -806,6 +806,26 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
               </div>
             </div>
           </div>
+          {selectedSlotIds.length === REQUIRED_COUNT && (
+            <div className="fixed inset-x-4 bottom-4 z-40 lg:hidden">
+              <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-lg">
+                <div className="mb-2 flex items-center justify-between text-xs text-slate-600">
+                  <span>선택 완료</span>
+                  <span>
+                    {selectedStudents.length}명 / {selectedSlotIds.length}개 일정
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  disabled={loading || selectedStudents.length === 0}
+                  onClick={handleSubmit}
+                  className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:bg-slate-300"
+                >
+                  {loading ? '신청 중...' : '선택한 5개 일정 신청하기'}
+                </button>
+              </div>
+            </div>
+          )}
         </section>
       )}
     </div>

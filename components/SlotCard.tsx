@@ -66,10 +66,13 @@ export default function SlotCard({ slot, selected, disabled = false, disabledRea
       disabled={isDisabled}
       onClick={() => onToggle?.(slot.id)}
       title={disabledReason ?? undefined}
+      style={{ WebkitTapHighlightColor: 'transparent' }}
       className={cn(
-        'group w-full rounded-lg border px-2.5 py-2 text-left transition focus:outline-none focus:ring-2 focus:ring-blue-200',
+        'group w-full select-none rounded-lg border px-2.5 py-2 text-left transition focus:outline-none focus:ring-2 focus:ring-blue-200',
         tone.card,
-        selected ? 'border-blue-500 ring-2 ring-blue-100' : 'hover:border-slate-300',
+        selected
+          ? '!border-blue-600 !bg-blue-50 ring-2 ring-blue-400 ring-offset-1 shadow-sm'
+          : 'hover:border-slate-300 active:scale-[0.99]',
         isDisabled ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
       )}
     >
