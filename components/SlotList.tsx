@@ -3,11 +3,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Reservation, ReservationSlot } from '@/lib/types';
 import AuthForm from './AuthForm';
-import ReservationForm, { GuardianProfile } from './ReservationForm';
-import SlotCard from './SlotCard';
 import { compareSlots, formatKoreanDate, getSlotDisplayText } from '@/lib/utils';
+import BootingCard from './reservation/BootingCard';
+import ReservationStepper from './reservation/ReservationStepper';
+import ConsentStep from './reservation/ConsentStep';
+import ProfileStep from './reservation/ProfileStep';
+import StudentSelector from './reservation/StudentSelector';
+import SelectionSummaryBar from './reservation/SelectionSummaryBar';
+import SlotSection from './reservation/SlotSection';
+import MobileSubmitBar from './reservation/MobileSubmitBar';
+import { GuardianProfile } from './ReservationForm';
 
 const REQUIRED_COUNT = 5;
+
 const CONSENT_ITEMS = [
   '5번의 일정을 선택하셔야 수업 신청이 가능합니다.',
   '결석 보강은 불가능하며, 이론 수업은 없는 일정입니다.',
@@ -162,8 +170,6 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
     })();
   }, []);
 
-  const consentComplete = consents.every(Boolean);
-
   const selectedSlotIdSet = useMemo(() => new Set(selectedSlotIds), [selectedSlotIds]);
 
   const selectedStudents = useMemo(
@@ -171,9 +177,7 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
     [profile, selectedStudentNames]
   );
 
-  const slotMap = useMemo(() => {
-    return new Map(slots.map((slot) => [slot.id, slot]));
-  }, [slots]);
+  const slotMap = useMemo(() => new Map(slots.map((slot) => [slot.id, slot])), [slots]);
 
   const selectedDateSet = useMemo(() => {
     const dateSet = new Set<string>();
@@ -218,32 +222,10 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
       .sort((a, b) => a.studentName.localeCompare(b.studentName, 'ko'));
   }, [myReservations, profile, slotMap]);
 
-  const groupedReservationMap = useMemo(() => {
-    return new Map(groupedReservations.map((group) => [group.studentName, group]));
-  }, [groupedReservations]);
-
-  const existingStudentNameSet = useMemo(() => {
-    return new Set(groupedReservations.map((group) => group.studentName));
-  }, [groupedReservations]);
-
-  const hasDifferentCompletedSchedules = useMemo(() => {
-    if (groupedReservations.length < 2) return false;
-    const signatures = groupedReservations.map((group) => getScheduleSignature(group.slotIds));
-    return new Set(signatures).size > 1;
-  }, [groupedReservations]);
-
-  const commonCompletedSlotIds = useMemo(() => {
-    if (groupedReservations.length < 2) return new Set<string>();
-
-    let common = new Set(groupedReservations[0].slotIds);
-
-    for (const group of groupedReservations.slice(1)) {
-      const current = new Set(group.slotIds);
-      common = new Set([...common].filter((slotId) => current.has(slotId)));
-    }
-
-    return common;
-  }, [groupedReservations]);
+  const groupedReservationMap = useMemo(
+    () => new Map(groupedReservations.map((group) => [group.studentName, group])),
+    [groupedReservations]
+  );
 
   const groupedSlots = useMemo(() => {
     const map = new Map<string, ReservationSlot[]>();
@@ -286,12 +268,6 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
     return dateSet;
   }, [selectedExistingGroups, slotMap]);
 
-  const hasMixedExistingSchedules = useMemo(() => {
-    if (selectedExistingGroups.length < 2) return false;
-    const signatures = selectedExistingGroups.map((group) => getScheduleSignature(group.slotIds));
-    return new Set(signatures).size > 1;
-  }, [selectedExistingGroups]);
-
   const hasOtherStudentDifferentExistingSchedule = useMemo(() => {
     const currentSelectionSignature = getScheduleSignature(selectedSlotIds);
     if (currentSelectionSignature === '__NONE__') return false;
@@ -305,6 +281,15 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
       (signature) => signature !== '__NONE__' && signature !== currentSelectionSignature
     );
   }, [groupedReservationMap, profile, selectedSlotIds]);
+
+  const selectedStudentsAlreadyCompleted = useMemo(() => {
+    if (!selectedStudents.length) return false;
+
+    return selectedStudents.every((student) => {
+      const existing = groupedReservationMap.get(student.studentName);
+      return !!existing && existing.slotIds.length === REQUIRED_COUNT;
+    });
+  }, [selectedStudents, groupedReservationMap]);
 
   function toggleConsent(index: number) {
     setConsents((prev) => prev.map((value, i) => (i === index ? !value : value)));
@@ -379,6 +364,8 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
   }
 
   function toggleStudent(studentName: string) {
+    setMessage(null);
+    setError(null);
     setSelectedStudentNames((prev) =>
       prev.includes(studentName) ? prev.filter((item) => item !== studentName) : [...prev, studentName]
     );
@@ -402,12 +389,16 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
       }
 
       if (prev.length >= REQUIRED_COUNT) {
-        setError('5개의 일정만 선택할 수 있습니다. 다른 일정을 취소한 뒤 다시 선택해주세요.');
+        setError('5개의 일정만 선택할 수 있습니다.');
+        return prev;
+      }
+
+      if (selectedStudentsAlreadyCompleted) {
         return prev;
       }
 
       if (blockedExistingDates.has(slot.date)) {
-        setError('이미 신청한 일정과 같은 날짜는 다시 선택할 수 없습니다. 기존 일정을 먼저 취소해주세요.');
+        setError('이미 신청한 날짜예요');
         return prev;
       }
 
@@ -417,7 +408,7 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
       });
 
       if (hasSameDate) {
-        setError('같은 날에는 1타임만 선택 가능합니다. 다른 날짜를 선택해주세요.');
+        setError('같은 날짜는 1개만 선택할 수 있어요');
         return prev;
       }
 
@@ -432,7 +423,12 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
     }
 
     if (!selectedStudents.length) {
-      setError('신청할 학생을 1명 이상 선택해주세요.');
+      setError('신청할 학생을 선택해주세요.');
+      return;
+    }
+
+    if (selectedStudentsAlreadyCompleted) {
+      setError('이미 신청이 완료된 학생입니다.');
       return;
     }
 
@@ -505,10 +501,11 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
       }
 
       await Promise.all([refreshSlots(), refreshMyReservations()]);
-      setSelectedStudentNames([]);
+      setSelectedStudentNames([studentName]);
       setSelectedSlotIds([]);
       setStep('slots');
-      setMessage(`${studentName} 학생의 신청을 취소했습니다. 다시 신청할 학생을 먼저 선택해주세요.`);
+      setMessage(null);
+      setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : '신청 취소에 실패했습니다.');
     } finally {
@@ -517,315 +514,162 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
   }
 
   if (booting) {
-    return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-sm text-slate-600">로그인 상태를 확인하는 중입니다...</p>
-      </div>
-    );
+    return <BootingCard />;
   }
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap gap-2 text-sm">
-          {[
-            { key: 'auth', label: '1. 로그인' },
-            { key: 'consent', label: '2. 동의사항' },
-            { key: 'profile', label: '3. 학생 정보' },
-            { key: 'slots', label: '4. 일정 선택' },
-          ].map((item) => {
-            const isActive = step === item.key;
-            return (
-              <div
-                key={item.key}
-                className={`rounded-full px-4 py-2 ${
-                  isActive ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'
-                }`}
-              >
-                {item.label}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <ReservationStepper
+  step={step}
+  showLogout={!!profile && step !== 'auth'}
+  loading={loading}
+  onLogout={handleLogout}
+  onGoProfile={() => setStep('profile')}
+/>
 
       {step === 'auth' && <AuthForm onAuthenticated={loadMe} />}
 
       {step === 'consent' && (
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-2xl font-bold">수업 신청 안내</h2>
-          <div className="mt-6 space-y-4">
-            {CONSENT_ITEMS.map((item, index) => (
-              <label key={item} className="flex items-start gap-3 rounded-xl border border-slate-200 p-4">
-                <input
-                  type="checkbox"
-                  checked={consents[index]}
-                  onChange={() => toggleConsent(index)}
-                  className="mt-1 h-4 w-4"
-                />
-                <span className="text-sm text-slate-700">{item}</span>
-              </label>
-            ))}
-          </div>
-          {error && <p className="mt-4 text-sm text-rose-600">{error}</p>}
-          <div className="mt-6 flex justify-end">
-            <button
-              type="button"
-              disabled={!consentComplete || loading}
-              onClick={handleConsentNext}
-              className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white disabled:bg-slate-300"
-            >
-              다음
-            </button>
-          </div>
-        </section>
+        <ConsentStep
+          items={CONSENT_ITEMS}
+          consents={consents}
+          loading={loading}
+          error={error}
+          onToggleConsent={toggleConsent}
+          onNext={handleConsentNext}
+        />
       )}
 
       {step === 'profile' && (
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="mb-5 flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-2xl font-bold">학생 정보 입력</h2>
-              <p className="mt-2 text-sm text-slate-600">
-                로그인된 전화번호 기준으로 학생 정보를 저장합니다. 다음 접속부터는 다시 입력하지 않아도 됩니다.
-              </p>
-            </div>
-          </div>
-          <ReservationForm initialProfile={profile} onSaved={handleProfileSaved} />
-        </section>
+        <ProfileStep
+          profile={profile}
+          onSaved={handleProfileSaved}
+        />
       )}
 
       {step === 'slots' && profile && (
-        <section className="space-y-6 pb-24 lg:pb-0">
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-2xl font-bold">일정 선택</h2>
-                <p className="mt-2 text-sm text-slate-600">정확히 5개의 일정을 선택한 뒤 신청을 완료해주세요.</p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setStep('profile')}
-                  className="rounded-xl border border-slate-300 px-4 py-2 text-sm"
-                >
-                  학생 정보 수정
-                </button>
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  className="rounded-xl border border-slate-300 px-4 py-2 text-sm"
-                >
-                  로그아웃
-                </button>
-              </div>
+        <section className="space-y-4 pb-28 lg:pb-0">
+         
+
+          <StudentSelector
+  students={profile.students}
+  selectedStudentNames={selectedStudentNames}
+  groupedReservations={groupedReservations}
+  slotMap={slotMap}
+  loading={loading}
+  onToggleStudent={toggleStudent}
+  onCancelStudentReservations={handleCancelStudentReservations}
+  onEditStudents={() => setStep('profile')}
+  formatSelectedSlot={formatSelectedSlot}
+/>
+
+          {message && selectedSlotIds.length === 0 && (
+            <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-4">
+              <p className="text-sm font-semibold text-emerald-800">신청이 완료되었어요</p>
+              <p className="mt-1 text-sm text-emerald-700">{message}</p>
             </div>
+          )}
 
-            {groupedReservations.length > 0 && (
-              <div className="mt-6 rounded-2xl border border-amber-100 bg-amber-50 p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-amber-900">신청 완료 일정</p>
-                  <button
-                    type="button"
-                    onClick={() => refreshMyReservations().catch(() => undefined)}
-                    className="text-xs text-amber-700 underline"
-                  >
-                    새로고침
-                  </button>
-                </div>
-                <div className="mt-3 space-y-4">
-                  {groupedReservations.map((group) => (
-                    <div key={group.studentName} className="rounded-xl border border-amber-200 bg-white p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-800">{group.studentName}</p>
-                          <p className="text-xs text-slate-500">{group.schoolName}</p>
-                        </div>
-                        <button
-                          type="button"
-                          disabled={loading}
-                          onClick={() => handleCancelStudentReservations(group.studentName, group.slotIds)}
-                          className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs text-rose-700 disabled:bg-slate-200 disabled:text-slate-400"
-                        >
-                          신청 취소 후 다시 선택
-                        </button>
-                      </div>
-                      <ul className="mt-3 space-y-2 text-sm">
-                        {group.slotIds.map((slotId) => {
-                          const slot = slotMap.get(slotId);
-                          const isDifferentLine =
-                            hasDifferentCompletedSchedules && !commonCompletedSlotIds.has(slotId);
+          {(selectedSlotIds.length > 0 || error) && !selectedStudentsAlreadyCompleted && (
+            <SelectionSummaryBar
+              selectedCount={selectedSlotIds.length}
+              requiredCount={REQUIRED_COUNT}
+              selectedStudentCount={selectedStudents.length}
+              selectedSlots={selectedSlots.map((slot) => ({
+                id: slot.id,
+                label: formatSelectedSlot(slot),
+              }))}
+              message={null}
+              error={error}
+            />
+          )}
 
-                          return (
-                            <li
-                              key={slotId}
-                              className={`flex items-center gap-2 ${
-                                isDifferentLine ? 'font-semibold text-rose-600' : 'text-slate-700'
-                              }`}
-                            >
-                              <span>• {slot ? formatSelectedSlot(slot) : slotId}</span>
-                              {isDifferentLine && (
-                                <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-medium text-rose-700">
-                                  다른 일정
-                                </span>
-                              )}
-                            </li>
-                          );
-                        })}
-                      </ul>
+          <div className="space-y-4">
+            {groupedSlots.map(([date, daySlots]) => {
+              const sample = daySlots[0];
+
+              return (
+                <SlotSection
+                  key={date}
+                  title={formatKoreanDate(date, sample.day_of_week)}
+                  subtitle={`${daySlots.length}개 시간대`}
+                >
+                  {!selectedStudentsAlreadyCompleted && blockedExistingDates.has(date) && (
+                    <div className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2.5">
+                      <p className="text-xs font-medium text-rose-700">
+                        이미 신청한 날짜예요
+                      </p>
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
+                  )}
 
-            <div className="mt-6 grid gap-6 lg:grid-cols-[320px_1fr]">
-              <aside className="space-y-4 rounded-2xl bg-slate-50 p-4">
-                <div>
-                  <p className="text-sm font-semibold text-slate-700">로그인된 보호자 전화번호</p>
-                  <p className="mt-1 text-sm text-slate-600">{profile.phoneNumber}</p>
-                </div>
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {daySlots.map((slot) => {
+                      const selected = selectedSlotIdSet.has(slot.id);
+                      const completedBlocked = !selected && selectedStudentsAlreadyCompleted;
+                      const openBlocked = !selected && !isOpenForSelection(slot);
+                      const existingDateBlocked = !selected && blockedExistingDates.has(slot.date);
+                      const sameDateBlocked = !selected && selectedDateSet.has(slot.date);
+                      const limitBlocked = !selected && selectedSlotIds.length >= REQUIRED_COUNT;
 
-                <div>
-                  <p className="text-sm font-semibold text-slate-700">신청할 학생 선택</p>
-                  <div className="mt-3 space-y-2">
-                    {profile.students.map((student) => {
-                      const hasExisting = existingStudentNameSet.has(student.studentName);
+                      const disabledReason = completedBlocked
+                        ? null
+                        : openBlocked
+                          ? `오픈: ${formatDateTime(slot.open_at as string)}`
+                          : existingDateBlocked
+                            ? '이미 신청한 날짜예요'
+                            : sameDateBlocked
+                              ? '같은 날짜는 1개만 선택할 수 있어요'
+                              : limitBlocked
+                                ? '이미 5개를 선택했어요'
+                                : null;
+
+                      const disabled =
+                        completedBlocked ||
+                        openBlocked ||
+                        existingDateBlocked ||
+                        sameDateBlocked ||
+                        limitBlocked;
 
                       return (
-                        <label
-                          key={student.studentName}
-                          className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedStudentNames.includes(student.studentName)}
-                            onChange={() => toggleStudent(student.studentName)}
-                            className="mt-1 h-4 w-4"
-                          />
-                          <span className="text-sm text-slate-700">
-                            {student.studentName} / {student.schoolName}
-                            {hasExisting ? ' · 기존 신청 있음' : ''}
-                          </span>
-                        </label>
+                        <SlotSection.Card
+                          key={slot.id}
+                          slot={slot}
+                          selected={selected}
+                          disabled={disabled}
+                          disabledReason={disabledReason}
+                          onToggle={toggleSlot}
+                        />
                       );
                     })}
                   </div>
-
-                  {hasOtherStudentDifferentExistingSchedule && (
-                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-                      같은 보호자 계정의 다른 학생에게 이미 다른 신청 일정이 있습니다. 현재 다른 일정으로 다시 신청하면 학생별 일정이 달라질 수 있습니다.
-                    </div>
-                  )}
-
-                  {!hasOtherStudentDifferentExistingSchedule && hasMixedExistingSchedules && (
-                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-                      선택한 학생들의 기존 신청 일정이 서로 다릅니다. 함께 다시 신청하기 전에 각 학생의 신청 완료 일정을 확인해주세요.
-                    </div>
-                  )}
-                </div>
-
-                <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
-                  <p className="text-sm font-semibold text-blue-800">
-                    선택한 일정 {selectedSlotIds.length} / {REQUIRED_COUNT}
-                  </p>
-                  <ul className="mt-3 space-y-2 text-sm text-blue-900">
-                    {selectedSlots.length === 0 ? (
-                      <li>아직 선택한 일정이 없습니다.</li>
-                    ) : (
-                      selectedSlots.map((slot) => <li key={slot.id}>• {formatSelectedSlot(slot)}</li>)
-                    )}
-                  </ul>
-                </div>
-
-                {selectedSlotIds.length === REQUIRED_COUNT && (
-                  <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-900">
-                    5개 일정 선택이 완료되었습니다. 아래 신청 버튼을 누르기 전에 선택한 일정과 학생 정보를 다시 확인해주세요.
-                  </div>
-                )}
-
-                {message && <p className="text-sm text-emerald-600">{message}</p>}
-                {error && <p className="text-sm text-rose-600">{error}</p>}
-
-                <button
-                  type="button"
-                  disabled={loading || selectedSlotIds.length !== REQUIRED_COUNT || selectedStudents.length === 0}
-                  onClick={handleSubmit}
-                  className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:bg-slate-300"
-                >
-                  {loading ? '신청 중...' : '선택한 5개 일정 신청하기'}
-                </button>
-              </aside>
-
-              <div className="space-y-3">
-                {groupedSlots.map(([date, daySlots]) => {
-                  const sample = daySlots[0];
-
-                  return (
-                    <section key={date} className="rounded-xl border border-slate-200 bg-white p-3">
-                      <div className="mb-2">
-                        <h3 className="text-sm font-semibold text-slate-900">
-                          {formatKoreanDate(date, sample.day_of_week)}
-                        </h3>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
-                        {daySlots.map((slot) => {
-                          const selected = selectedSlotIdSet.has(slot.id);
-                          const openBlocked = !selected && !isOpenForSelection(slot);
-                          const existingDateBlocked = !selected && blockedExistingDates.has(slot.date);
-                          const sameDateBlocked = !selected && selectedDateSet.has(slot.date);
-                          const limitBlocked = !selected && selectedSlotIds.length >= REQUIRED_COUNT;
-
-                          const disabledReason = openBlocked
-                            ? `오픈: ${formatDateTime(slot.open_at as string)}`
-                            : existingDateBlocked
-                              ? '이미 신청한 일정과 같은 날짜입니다. 기존 일정을 먼저 취소해주세요.'
-                              : sameDateBlocked
-                                ? '같은 날의 다른 시간은 이미 선택되어 있습니다.'
-                                : limitBlocked
-                                  ? '이미 5개의 일정을 선택했습니다.'
-                                  : null;
-
-                          return (
-                            <div key={slot.id}>
-                              <SlotCard
-                                slot={slot}
-                                selected={selected}
-                                disabled={openBlocked || existingDateBlocked || sameDateBlocked || limitBlocked}
-                                disabledReason={disabledReason}
-                                onToggle={toggleSlot}
-                              />
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </section>
-                  );
-                })}
-              </div>
-            </div>
+                </SlotSection>
+              );
+            })}
           </div>
-          {selectedSlotIds.length === REQUIRED_COUNT && (
-            <div className="fixed inset-x-4 bottom-4 z-40 lg:hidden">
-              <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-lg">
-                <div className="mb-2 flex items-center justify-between text-xs text-slate-600">
-                  <span>선택 완료</span>
-                  <span>
-                    {selectedStudents.length}명 / {selectedSlotIds.length}개 일정
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  disabled={loading || selectedStudents.length === 0}
-                  onClick={handleSubmit}
-                  className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:bg-slate-300"
-                >
-                  {loading ? '신청 중...' : '선택한 5개 일정 신청하기'}
-                </button>
-              </div>
-            </div>
-          )}
+
+          <MobileSubmitBar
+            loading={loading}
+            selectedStudentCount={selectedStudents.length}
+            selectedSlotCount={selectedSlotIds.length}
+            requiredCount={REQUIRED_COUNT}
+            onSubmit={handleSubmit}
+          />
+
+          <div className="hidden lg:block">
+            <button
+              type="button"
+              disabled={
+                loading ||
+                selectedStudents.length === 0 ||
+                selectedStudentsAlreadyCompleted ||
+                selectedSlotIds.length !== REQUIRED_COUNT
+              }
+              onClick={handleSubmit}
+              className="w-full rounded-2xl bg-slate-900 px-4 py-4 text-sm font-semibold text-white disabled:bg-slate-300"
+            >
+              {loading ? '신청 중...' : '선택한 5개 일정 신청하기'}
+            </button>
+          </div>
         </section>
       )}
     </div>

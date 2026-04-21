@@ -68,23 +68,23 @@ export default function ReservationForm({ initialProfile, onSaved }: Props) {
       }
 
       const res = await fetch('/api/me/students', {
-  method: 'PUT',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ students: normalized }),
-});
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ students: normalized }),
+      });
 
-const text = await res.text();
+      const text = await res.text();
 
-let json: any = {};
-try {
-  json = text ? JSON.parse(text) : {};
-} catch {
-  throw new Error(`학생 정보 저장 API가 JSON이 아닌 응답을 반환했습니다. 상태코드: ${res.status}`);
-}
+      let json: any = {};
+      try {
+        json = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(`학생 정보 저장 API가 JSON이 아닌 응답을 반환했습니다. 상태코드: ${res.status}`);
+      }
 
-if (!res.ok) {
-  throw new Error(json.error || '학생 정보 저장에 실패했습니다.');
-}
+      if (!res.ok) {
+        throw new Error(json.error || '학생 정보 저장에 실패했습니다.');
+      }
 
       const profile = {
         phoneNumber: initialProfile?.phoneNumber ?? '',
@@ -102,37 +102,49 @@ if (!res.ok) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
         <p className="text-sm font-semibold text-slate-700">로그인된 보호자 전화번호</p>
         <p className="mt-1 text-sm text-slate-600">{initialProfile?.phoneNumber || '-'}</p>
       </div>
 
       <div className="space-y-3">
         {students.map((student, index) => (
-          <div key={index} className="rounded-2xl border border-slate-200 p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-sm font-semibold">학생 {index + 1}</p>
+          <div key={index} className="rounded-3xl border border-slate-200 bg-white p-4">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-slate-900">학생 {index + 1}</p>
               {students.length > 1 && (
-                <button type="button" onClick={() => removeStudent(index)} className="text-sm text-rose-600">
+                <button
+                  type="button"
+                  onClick={() => removeStudent(index)}
+                  className="rounded-xl border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-600"
+                >
                   삭제
                 </button>
               )}
             </div>
+
             <div className="space-y-3">
-              <input
-                value={student.schoolName}
-                onChange={(e) => updateStudent(index, 'schoolName', e.target.value)}
-                required
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
-                placeholder="학교명"
-              />
-              <input
-                value={student.studentName}
-                onChange={(e) => updateStudent(index, 'studentName', e.target.value)}
-                required
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
-                placeholder="학생명"
-              />
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-800">학교명</label>
+                <input
+                  value={student.schoolName}
+                  onChange={(e) => updateStudent(index, 'schoolName', e.target.value)}
+                  required
+                  className="w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                  placeholder="예: OO초등학교"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-800">학생명</label>
+                <input
+                  value={student.studentName}
+                  onChange={(e) => updateStudent(index, 'studentName', e.target.value)}
+                  required
+                  className="w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                  placeholder="학생 이름 입력"
+                />
+              </div>
             </div>
           </div>
         ))}
@@ -141,7 +153,7 @@ if (!res.ok) {
       <button
         type="button"
         onClick={addStudent}
-        className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700"
+        className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700"
       >
         학생 추가
       </button>
@@ -152,7 +164,7 @@ if (!res.ok) {
       <button
         type="submit"
         disabled={loading}
-        className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white disabled:bg-slate-300"
+        className="w-full rounded-2xl bg-blue-600 px-4 py-3.5 text-sm font-semibold text-white disabled:bg-slate-300"
       >
         {loading ? '저장 중...' : '학생 정보 저장'}
       </button>

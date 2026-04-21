@@ -52,13 +52,21 @@ function formatTimeWithSinglePeriod(start: string, end: string) {
   return `${formatStartTime(start)}~${formatEndTime(end)}`;
 }
 
-export default function SlotCard({ slot, selected, disabled = false, disabledReason, onToggle }: Props) {
+export default function SlotCard({
+  slot,
+  selected,
+  disabled = false,
+  disabledReason,
+  onToggle,
+}: Props) {
   const isClosed = slot.is_closed || slot.reserved_count >= slot.capacity;
   const tone = getSlotTone(slot);
   const isDisabled = disabled || isClosed;
   const isUnavailable = isDisabled && !selected && !isClosed;
   const label = getSlotLabel(slot);
   const timeText = formatTimeWithSinglePeriod(slot.start_time, slot.end_time);
+
+  const statusText = isClosed ? '마감' : selected ? '선택됨' : isUnavailable ? '불가' : '선택';
 
   return (
     <button
@@ -68,47 +76,45 @@ export default function SlotCard({ slot, selected, disabled = false, disabledRea
       title={disabledReason ?? undefined}
       style={{ WebkitTapHighlightColor: 'transparent' }}
       className={cn(
-        'group w-full select-none rounded-lg border px-2.5 py-2 text-left transition focus:outline-none focus:ring-2 focus:ring-blue-200',
+        'group relative w-full select-none rounded-2xl border px-4 py-3 text-left transition focus:outline-none focus:ring-2 focus:ring-blue-200',
         tone.card,
         selected
-          ? '!border-blue-600 !bg-blue-50 ring-2 ring-blue-400 ring-offset-1 shadow-sm'
+          ? '!border-blue-600 !bg-blue-50 ring-2 ring-blue-300 ring-offset-1 shadow-sm'
           : 'hover:border-slate-300 active:scale-[0.99]',
         isDisabled ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5 text-slate-900 sm:text-[14px]">
-          {label}
-        </h3>
-        <span
-          className={cn(
-            'shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-4',
-            isClosed
-              ? 'bg-rose-100 text-rose-700'
-              : selected
-                ? 'bg-blue-100 text-blue-700'
-                : isUnavailable
-                  ? 'bg-slate-200 text-slate-600'
-                  : tone.badge
-          )}
-        >
-          {isClosed ? '마감' : selected ? '선택됨' : isUnavailable ? '불가' : '선택'}
-        </span>
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-semibold leading-5 text-slate-900">
+            {label}
+          </h3>
+          <p className="mt-0.5 text-xs font-medium text-slate-700">{timeText}</p>
+        </div>
+
+        <div className="shrink-0 text-right">
+          <span
+            className={cn(
+              'inline-flex rounded-full px-2 py-1 text-[11px] font-semibold',
+              isClosed
+                ? 'bg-rose-100 text-rose-700'
+                : selected
+                  ? 'bg-blue-100 text-blue-700'
+                  : isUnavailable
+                    ? 'bg-slate-200 text-slate-600'
+                    : tone.badge
+            )}
+          >
+            {statusText}
+          </span>
+          <p className="mt-0.5 text-[11px] text-slate-500">
+            정원 {slot.reserved_count}/{slot.capacity}
+          </p>
+        </div>
       </div>
 
-      <div className="mt-1.5 flex items-center justify-between gap-2">
-        <p className="min-w-0 truncate text-[11px] font-medium leading-4 text-slate-700 sm:text-[12px]">
-          {timeText}
-        </p>
-        <p className="shrink-0 text-[10px] leading-4 text-slate-500 sm:text-[11px]">
-          정원 {slot.reserved_count}/{slot.capacity}
-        </p>
-      </div>
-
-      {!selected && disabledReason && (
-        <p className="mt-1 truncate text-[10px] leading-4 text-rose-600 sm:text-[11px]">
-          {disabledReason}
-        </p>
+      {selected && (
+        <p className="mt-1.5 text-[11px] font-semibold text-blue-700">✓ 선택 완료</p>
       )}
     </button>
   );
