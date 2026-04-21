@@ -31,14 +31,16 @@ function formatSelectedSlot(slot: ReservationSlot) {
 
 function formatDateTime(value: string) {
   const date = new Date(value);
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, '0');
-  const dd = String(date.getDate()).padStart(2, '0');
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+  const dayName = dayNames[date.getDay()];
   const hours = date.getHours();
   const minutes = String(date.getMinutes()).padStart(2, '0');
   const period = hours < 12 ? '오전' : '오후';
   const displayHour = hours % 12 === 0 ? 12 : hours % 12;
-  return `${yyyy}-${mm}-${dd} ${period} ${displayHour}:${minutes}`;
+
+  return `${month}/${day}(${dayName}) ${period} ${displayHour}:${minutes}`;
 }
 
 function isOpenForSelection(slot: ReservationSlot) {
@@ -390,7 +392,7 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
     setError(null);
 
     if (!isOpenForSelection(slot)) {
-      setError(`이 일정은 아직 신청할 수 없습니다. 신청 시작: ${formatDateTime(slot.open_at as string)}`);
+      setError(`이 일정은 아직 신청할 수 없습니다. 오픈: ${formatDateTime(slot.open_at as string)}`);
       return;
     }
 
@@ -776,7 +778,7 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
                           const limitBlocked = !selected && selectedSlotIds.length >= REQUIRED_COUNT;
 
                           const disabledReason = openBlocked
-                            ? `신청 시작: ${formatDateTime(slot.open_at as string)}`
+                            ? `오픈: ${formatDateTime(slot.open_at as string)}`
                             : existingDateBlocked
                               ? '이미 신청한 일정과 같은 날짜입니다. 기존 일정을 먼저 취소해주세요.'
                               : sameDateBlocked
