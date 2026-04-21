@@ -41,8 +41,6 @@ function normalizeOpenAt(openAt?: string | null) {
 
   const [, year, month, day, hour, minute, second = '00'] = match;
 
-  // 관리자 입력값은 한국시간(KST) 기준으로 해석
-  // KST(+09:00) -> UTC ISO 문자열로 저장
   const utcMillis = Date.UTC(
     Number(year),
     Number(month) - 1,
@@ -106,7 +104,10 @@ function toSlotRow(input: SlotInput): ReservationSlot {
   };
 }
 
-async function ensureNoDuplicateSlot(input: { date: string; label: string; start_time: string; end_time: string }, ignoreId?: string) {
+async function ensureNoDuplicateSlot(
+  input: { date: string; label: string; start_time: string; end_time: string },
+  ignoreId?: string
+) {
   let query = supabase
     .from('slots')
     .select('id')
@@ -168,7 +169,12 @@ export async function listReservationsByPhone(phoneNumber: string) {
 
 export async function createSlot(input: SlotInput) {
   const slot = toSlotRow(input);
-  await ensureNoDuplicateSlot({ date: slot.date, label: slot.label, start_time: slot.start_time, end_time: slot.end_time });
+  await ensureNoDuplicateSlot({
+    date: slot.date,
+    label: slot.label,
+    start_time: slot.start_time,
+    end_time: slot.end_time,
+  });
 
   const { data, error } = await supabase
     .from('slots')
@@ -195,7 +201,12 @@ export async function createSlotsBulk(inputs: SlotInput[]) {
       throw new Error(`${index + 2}행: 업로드 파일 안에 같은 날짜, 반 이름, 시간대가 중복되어 있습니다.`);
     }
     seen.add(key);
-    await ensureNoDuplicateSlot({ date: slot.date, label: slot.label, start_time: slot.start_time, end_time: slot.end_time });
+    await ensureNoDuplicateSlot({
+      date: slot.date,
+      label: slot.label,
+      start_time: slot.start_time,
+      end_time: slot.end_time,
+    });
     created.push(slot);
   }
 
@@ -225,7 +236,15 @@ export async function updateSlot(input: UpdateSlotInput) {
     throw new Error(`총인원은 현재 신청 인원(${existing.reserved_count})보다 작을 수 없습니다.`);
   }
 
-  await ensureNoDuplicateSlot({ date: normalized.date, label: normalized.label, start_time: normalized.start_time, end_time: normalized.end_time }, input.id);
+  await ensureNoDuplicateSlot(
+    {
+      date: normalized.date,
+      label: normalized.label,
+      start_time: normalized.start_time,
+      end_time: normalized.end_time,
+    },
+    input.id
+  );
 
   const payload = {
     date: normalized.date,
@@ -281,7 +300,8 @@ export async function updateSlotsBulk(input: BulkUpdateSlotsInput) {
   const normalizedLabel = hasLabel ? input.label!.trim() : undefined;
   const normalizedStartTime = hasStartTime ? normalizeClockTime(input.startTime!) : undefined;
   const normalizedEndTime = hasEndTime ? normalizeClockTime(input.endTime!) : undefined;
-  const normalizedOpenAt = applyOpenAt ? normalizeOpenAt(input.openAt) : undefined;
+  const normalizedOpenAt = applyOpenAt ? normalizeOpenAt(input.openAt) : null;
+  const updatedAt = nowIso();
 
   const proposed = existingSlots.map((slot) => ({
     ...slot,
@@ -290,8 +310,7 @@ export async function updateSlotsBulk(input: BulkUpdateSlotsInput) {
     label: normalizedLabel ?? slot.label,
     start_time: normalizedStartTime ?? slot.start_time,
     end_time: normalizedEndTime ?? slot.end_time,
-    open_at: applyOpenAt ? normalizedOpenAt ?? null : slot.open_at,
-    updated_at: nowIso(),
+    open_at: applyOpenAt ? normalizedOpenAt : slot.open_at,
   }));
 
   for (const slot of proposed) {
@@ -310,31 +329,31 @@ export async function updateSlotsBulk(input: BulkUpdateSlotsInput) {
   }
 
   for (const slot of proposed) {
-    await ensureNoDuplicateSlot({ date: slot.date, label: slot.label, start_time: slot.start_time, end_time: slot.end_time }, slot.id);
-  }
-
-  const updatedRows: ReservationSlot[] = [];
-  for (const slot of proposed) {
-    const { data, error } = await supabase
-      .from('slots')
-      .update({
+    await ensureNoDuplicateSlot(
+      {
         date: slot.date,
-        day_of_week: slot.day_of_week,
         label: slot.label,
         start_time: slot.start_time,
         end_time: slot.end_time,
-        open_at: slot.open_at,
-        updated_at: slot.updated_at,
-      })
-      .eq('id', slot.id)
-      .select()
-      .single();
-
-    if (error) throw new Error(error.message);
-    updatedRows.push(data as ReservationSlot);
+      },
+      slot.id
+    );
   }
 
-  return updatedRows;
+  const { data, error } = await supabase.rpc('update_slots_bulk_atomic', {
+    p_ids: ids,
+    p_date: normalizedDate ?? null,
+    p_day_of_week: normalizedDayOfWeek ?? null,
+    p_label: normalizedLabel ?? null,
+    p_start_time: normalizedStartTime ?? null,
+    p_end_time: normalizedEndTime ?? null,
+    p_open_at: applyOpenAt ? normalizedOpenAt : null,
+    p_apply_open_at: applyOpenAt,
+    p_updated_at: updatedAt,
+  });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as ReservationSlot[];
 }
 
 export async function deleteSlot(id: string) {
