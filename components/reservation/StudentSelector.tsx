@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ReservationSlot } from '@/lib/types';
 
 type StudentItem = {
@@ -38,15 +38,15 @@ export default function StudentSelector({
   formatSelectedSlot,
 }: Props) {
   const [openStudentName, setOpenStudentName] = useState<string | null>(null);
-
-  const reservationMap = new Map(
-    groupedReservations.map((group) => [group.studentName, group])
-  );
+  const reservationMap = useMemo(() => new Map(groupedReservations.map((group) => [group.studentName, group])), [groupedReservations]);
 
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <p className="text-sm font-semibold text-slate-900">신청 학생 선택</p>
+    <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">신청 학생</p>
+          <p className="mt-1 text-xs text-slate-500">{selectedStudentNames.length}명 선택</p>
+        </div>
 
         {onEditStudents && (
           <button
@@ -59,7 +59,7 @@ export default function StudentSelector({
         )}
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-2.5">
         {students.map((student) => {
           const checked = selectedStudentNames.includes(student.studentName);
           const completed = reservationMap.get(student.studentName);
@@ -68,57 +68,38 @@ export default function StudentSelector({
             const isOpen = openStudentName === student.studentName;
 
             return (
-              <div
-                key={student.studentName}
-                className="rounded-2xl border border-amber-200 bg-amber-50 p-4"
-              >
+              <div key={student.studentName} className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-3.5">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 pr-2">
-                    <div className="flex items-center gap-2">
-                      <p className="truncate text-sm font-medium text-slate-900">
-                        {student.studentName}
-                      </p>
-                      <span className="shrink-0 rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-700">
-                        신청 완료
-                      </span>
-                    </div>
-
-                    <p className="mt-1 truncate text-xs text-slate-500">
-                      {student.schoolName}
-                    </p>
+                  <div className="min-w-0">
+                    <p className="truncate text-[11px] font-medium text-slate-500">{student.schoolName}</p>
+                    <p className="mt-1 truncate text-sm font-semibold text-slate-900">{student.studentName}</p>
                   </div>
+                  <span className="inline-flex shrink-0 items-center rounded-full border border-emerald-200 bg-white/90 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">
+                    완료
+                  </span>
+                </div>
 
-                  <div className="flex shrink-0 items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setOpenStudentName((prev) =>
-                          prev === student.studentName ? null : student.studentName
-                        )
-                      }
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700"
-                    >
-                      {isOpen ? '일정 닫기' : '일정 보기'}
-                    </button>
+                <div className="mt-3 grid gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setOpenStudentName((prev) => (prev === student.studentName ? null : student.studentName))}
+                    className="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700"
+                  >
+                    {isOpen ? '일정 닫기' : '일정 보기'}
+                  </button>
 
-                    <button
-                      type="button"
-                      disabled={loading}
-                      onClick={() =>
-                        onCancelStudentReservations(
-                          completed.studentName,
-                          completed.slotIds
-                        )
-                      }
-                      className="rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-medium text-rose-700 disabled:bg-slate-100 disabled:text-slate-400"
-                    >
-                      신청 취소
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => onCancelStudentReservations(completed.studentName, completed.slotIds)}
+                    className="inline-flex h-9 items-center justify-center rounded-xl border border-rose-200 bg-white px-3 text-xs font-medium text-rose-700 disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                    다시 선택
+                  </button>
                 </div>
 
                 {isOpen && (
-                  <ul className="mt-3 space-y-2 text-sm text-slate-700">
+                  <ul className="mt-3 space-y-1.5 text-xs text-slate-700">
                     {completed.slotIds.map((slotId) => {
                       const slot = slotMap.get(slotId);
                       return (
@@ -137,19 +118,13 @@ export default function StudentSelector({
           return (
             <label
               key={student.studentName}
-              className={`flex cursor-pointer items-center justify-between rounded-2xl border px-4 py-3 transition ${
-                checked
-                  ? 'border-blue-300 bg-blue-50'
-                  : 'border-slate-200 bg-white'
+              className={`flex cursor-pointer items-center justify-between rounded-2xl border px-3.5 py-3 transition ${
+                checked ? 'border-blue-300 bg-blue-50 shadow-sm' : 'border-slate-200 bg-white'
               }`}
             >
               <div className="min-w-0 pr-3">
-                <p className="truncate text-sm font-medium text-slate-900">
-                  {student.studentName}
-                </p>
-                <p className="mt-1 truncate text-xs text-slate-500">
-                  {student.schoolName}
-                </p>
+                <p className="truncate text-[11px] font-medium text-slate-500">{student.schoolName}</p>
+                <p className="mt-1 truncate text-sm font-semibold text-slate-900">{student.studentName}</p>
               </div>
 
               <input

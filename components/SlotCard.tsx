@@ -65,7 +65,6 @@ export default function SlotCard({
   const isUnavailable = isDisabled && !selected && !isClosed;
   const label = getSlotLabel(slot);
   const timeText = formatTimeWithSinglePeriod(slot.start_time, slot.end_time);
-
   const statusText = isClosed ? '마감' : selected ? '선택됨' : isUnavailable ? '불가' : '선택';
 
   return (
@@ -76,7 +75,7 @@ export default function SlotCard({
       title={disabledReason ?? undefined}
       style={{ WebkitTapHighlightColor: 'transparent' }}
       className={cn(
-        'group relative w-full select-none rounded-2xl border px-4 py-3 text-left transition focus:outline-none focus:ring-2 focus:ring-blue-200',
+        'group relative w-full select-none rounded-[22px] border px-4 py-4 text-left transition focus:outline-none focus:ring-2 focus:ring-blue-200',
         tone.card,
         selected
           ? '!border-blue-600 !bg-blue-50 ring-2 ring-blue-300 ring-offset-1 shadow-sm'
@@ -86,10 +85,8 @@ export default function SlotCard({
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="truncate text-sm font-semibold leading-5 text-slate-900">
-            {label}
-          </h3>
-          <p className="mt-0.5 text-xs font-medium text-slate-700">{timeText}</p>
+          <h3 className="truncate text-sm font-semibold leading-5 text-slate-900">{label}</h3>
+          <p className="mt-1 text-xs font-medium text-slate-700">{timeText}</p>
         </div>
 
         <div className="shrink-0 text-right">
@@ -107,15 +104,9 @@ export default function SlotCard({
           >
             {statusText}
           </span>
-          <p className="mt-0.5 text-[11px] text-slate-500">
-            정원 {slot.reserved_count}/{slot.capacity}
-          </p>
+          <p className="mt-1 text-[11px] text-slate-500">정원 {slot.reserved_count}/{slot.capacity}</p>
         </div>
       </div>
-
-      {selected && (
-        <p className="mt-1.5 text-[11px] font-semibold text-blue-700">✓ 선택 완료</p>
-      )}
     </button>
   );
 }

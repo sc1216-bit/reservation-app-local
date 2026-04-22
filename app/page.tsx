@@ -5,15 +5,19 @@ export default async function HomePage() {
   const slots = await listSlots();
 
   return (
-    <main className="mx-auto min-h-screen max-w-7xl px-4 py-6 sm:px-6 sm:py-10 lg:px-8">
-      <div className="mb-6 sm:mb-8">
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">수업 신청</h1>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
-          동의 확인 후 학생 정보를 입력하고, 희망 일정 5개를 선택해 주세요.
-        </p>
-      </div>
+    <main className="min-h-screen overflow-x-hidden bg-slate-100">
+      <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
+        <section className="overflow-visible rounded-[28px] border border-slate-200 bg-white shadow-[0_20px_70px_rgba(15,23,42,0.08)]">
+          <div className="border-b border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.12),_transparent_28%),linear-gradient(135deg,_#eff6ff,_#ffffff)] px-5 py-4 sm:px-7 sm:py-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Reservation</p>
+            <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">수업 신청</h1>
+          </div>
 
-      <SlotList initialSlots={slots} />
+          <div className="p-4 sm:p-5 lg:p-6">
+            <SlotList initialSlots={slots} />
+          </div>
+        </section>
+      </div>
     </main>
   );
 }

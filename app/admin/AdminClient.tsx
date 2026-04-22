@@ -2,10 +2,22 @@
 
 import React, { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
 import { Reservation, ReservationSlot } from '@/lib/types';
-import { formatKoreanDate, getSlotLabel, getSlotTimeText } from '@/lib/utils';
+import { compareSlots, formatKoreanDate, getSlotLabel, getSlotTimeText } from '@/lib/utils';
 import { getSlotTone } from '@/lib/slotTone';
 
 type BulkOpenMode = 'keep' | 'immediate' | 'datetime';
+type StatusFilter = 'all' | 'open' | 'closed' | 'scheduled';
+type DateFilter = 'all' | 'today' | 'upcoming' | 'past';
+type SortOption = 'dateAsc' | 'dateDesc' | 'availabilityLow' | 'availabilityHigh' | 'createdDesc';
+type SeatFilter = 'all' | 'available' | 'tight' | 'full';
+type ApplicantFilter = 'all' | 'none' | 'has' | 'multi';
+type AdminSection = 'dashboard' | 'schedules' | 'applicants';
+
+type ReservationWithSlot = Reservation & {
+  slotDate: string;
+  slotLabel: string;
+  slotTime: string;
+};
 
 function toDateTimeLocalValue(value: string | null) {
   if (!value) return '';
@@ -26,6 +38,147 @@ function formatDateTime(value: string) {
   return `${yyyy}-${mm}-${dd} ${period} ${displayHour}:${minutes}`;
 }
 
+function formatDateOnlyKorean(dateString: string) {
+  const date = new Date(dateString);
+  const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+  const dayName = Number.isNaN(date.getTime()) ? '' : dayNames[date.getDay()];
+  return dayName ? formatKoreanDate(dateString, dayName) : dateString;
+}
+
+function inputClassName() {
+  return 'w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200';
+}
+
+function statTone(type: 'default' | 'success' | 'warning' | 'danger' = 'default') {
+  if (type === 'success') return 'border-emerald-200 bg-emerald-50 text-emerald-950';
+  if (type === 'warning') return 'border-amber-200 bg-amber-50 text-amber-950';
+  if (type === 'danger') return 'border-rose-200 bg-rose-50 text-rose-950';
+  return 'border-slate-200 bg-white text-slate-950';
+}
+
+function isSlotClosed(slot: ReservationSlot) {
+  return slot.is_closed || slot.reserved_count >= slot.capacity;
+}
+
+function getRemainingSeats(slot: ReservationSlot) {
+  return Math.max(slot.capacity - slot.reserved_count, 0);
+}
+
+function getOccupancy(slot: ReservationSlot) {
+  if (!slot.capacity) return 0;
+  return Math.min(Math.round((slot.reserved_count / slot.capacity) * 100), 100);
+}
+
+function toDateOnlyValue(dateString: string) {
+  return new Date(dateString).toISOString().slice(0, 10);
+}
+
+function compareVisibleSlots(a: ReservationSlot, b: ReservationSlot, sortOption: SortOption) {
+  if (sortOption === 'dateDesc') return compareSlots(b, a);
+  if (sortOption === 'availabilityLow') return getRemainingSeats(a) - getRemainingSeats(b) || compareSlots(a, b);
+  if (sortOption === 'availabilityHigh') return getRemainingSeats(b) - getRemainingSeats(a) || compareSlots(a, b);
+  if (sortOption === 'createdDesc') return b.created_at.localeCompare(a.created_at) || compareSlots(a, b);
+  return compareSlots(a, b);
+}
+
+function SectionChip({ active, onClick, title }: { active: boolean; onClick: () => void; title: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+        active ? 'border-slate-900 bg-slate-900 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+      }`}
+    >
+      {title}
+    </button>
+  );
+}
+
+function StatusPill({ slot }: { slot: ReservationSlot }) {
+  if (isSlotClosed(slot)) {
+    return <span className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700">마감</span>;
+  }
+
+  if (slot.open_at) {
+    return <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-700">오픈 예정</span>;
+  }
+
+  return <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">접수 중</span>;
+}
+
+function MetricCard({
+  title,
+  value,
+  description,
+  type = 'default',
+}: {
+  title: string;
+  value: string | number;
+  description: string;
+  type?: 'default' | 'success' | 'warning' | 'danger';
+}) {
+  return (
+    <div className={`rounded-3xl border p-5 shadow-sm ${statTone(type)}`}>
+      <p className="text-xs font-medium text-slate-500">{title}</p>
+      <p className="mt-3 text-3xl font-bold tracking-tight">{value}</p>
+      <p className="mt-2 text-xs leading-5 text-slate-500">{description}</p>
+    </div>
+  );
+}
+
+function ReservationList({
+  reservations,
+  isBusy,
+  deletingReservationId,
+  onDelete,
+}: {
+  reservations: Reservation[];
+  isBusy: boolean;
+  deletingReservationId: string | null;
+  onDelete: (id: string) => void;
+}) {
+  if (reservations.length === 0) {
+    return <p className="text-sm text-slate-500">신청자가 없습니다.</p>;
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm">
+        <thead>
+          <tr className="border-b border-slate-200 text-left text-slate-500">
+            <th className="px-3 py-2">학교</th>
+            <th className="px-3 py-2">학생명</th>
+            <th className="px-3 py-2">전화번호</th>
+            <th className="px-3 py-2">신청일시</th>
+            <th className="px-3 py-2">관리</th>
+          </tr>
+        </thead>
+        <tbody>
+          {reservations.map((reservation) => (
+            <tr key={reservation.id} className="border-b border-slate-100 last:border-b-0">
+              <td className="px-3 py-2">{reservation.school_name}</td>
+              <td className="px-3 py-2 font-medium text-slate-900">{reservation.student_name}</td>
+              <td className="px-3 py-2">{reservation.phone_number}</td>
+              <td className="px-3 py-2">{formatDateTime(reservation.created_at)}</td>
+              <td className="px-3 py-2">
+                <button
+                  type="button"
+                  onClick={() => onDelete(reservation.id)}
+                  disabled={isBusy}
+                  className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-rose-700 disabled:bg-slate-100 disabled:text-slate-400"
+                >
+                  {deletingReservationId === reservation.id ? '삭제 중...' : '삭제'}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function AdminClient({
   initialSlots,
   initialReservations,
@@ -37,6 +190,7 @@ export default function AdminClient({
   const [reservations, setReservations] = useState(initialReservations);
   const [expandedSlotId, setExpandedSlotId] = useState<string | null>(null);
   const [checkedSlotIds, setCheckedSlotIds] = useState<string[]>([]);
+  const [activeSection, setActiveSection] = useState<AdminSection>('dashboard');
   const [date, setDate] = useState('');
   const [label, setLabel] = useState('');
   const [startTime, setStartTime] = useState('');
@@ -53,6 +207,13 @@ export default function AdminClient({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [reservationSearchTerm, setReservationSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [dateFilter, setDateFilter] = useState<DateFilter>('all');
+  const [sortOption, setSortOption] = useState<SortOption>('dateAsc');
+  const [seatFilter, setSeatFilter] = useState<SeatFilter>('all');
+  const [applicantFilter, setApplicantFilter] = useState<ApplicantFilter>('all');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -61,8 +222,6 @@ export default function AdminClient({
   const [deletingSlotId, setDeletingSlotId] = useState<string | null>(null);
   const [deletingReservationId, setDeletingReservationId] = useState<string | null>(null);
 
-  const slotsById = useMemo(() => new Map(slots.map((slot) => [slot.id, slot])), [slots]);
-  const allChecked = slots.length > 0 && checkedSlotIds.length === slots.length;
   const isBusy =
     submitting ||
     uploading ||
@@ -70,6 +229,151 @@ export default function AdminClient({
     bulkDeleting ||
     deletingSlotId !== null ||
     deletingReservationId !== null;
+
+  const reservationCountBySlotId = useMemo(() => {
+    const map = new Map<string, Reservation[]>();
+    reservations.forEach((reservation) => {
+      if (!map.has(reservation.slot_id)) map.set(reservation.slot_id, []);
+      map.get(reservation.slot_id)!.push(reservation);
+    });
+    return map;
+  }, [reservations]);
+
+  const slotById = useMemo(() => {
+    return new Map(slots.map((slot) => [slot.id, slot]));
+  }, [slots]);
+
+  const today = useMemo(() => toDateOnlyValue(new Date().toISOString()), []);
+
+  const visibleSlots = useMemo(() => {
+    const keyword = searchTerm.trim().toLowerCase();
+
+    return [...slots]
+      .filter((slot) => {
+        const closed = isSlotClosed(slot);
+        const scheduled = !!slot.open_at && !closed;
+        const remainingSeats = getRemainingSeats(slot);
+        const applicantCount = reservationCountBySlotId.get(slot.id)?.length ?? 0;
+
+        const matchesStatus =
+          statusFilter === 'all' ||
+          (statusFilter === 'open' && !closed && !scheduled) ||
+          (statusFilter === 'closed' && closed) ||
+          (statusFilter === 'scheduled' && scheduled);
+
+        if (!matchesStatus) return false;
+
+        const slotDate = slot.date;
+        const matchesDate =
+          dateFilter === 'all' ||
+          (dateFilter === 'today' && slotDate === today) ||
+          (dateFilter === 'upcoming' && slotDate >= today) ||
+          (dateFilter === 'past' && slotDate < today);
+
+        if (!matchesDate) return false;
+
+        const matchesSeat =
+          seatFilter === 'all' ||
+          (seatFilter === 'available' && remainingSeats >= 2) ||
+          (seatFilter === 'tight' && remainingSeats === 1) ||
+          (seatFilter === 'full' && remainingSeats === 0);
+
+        if (!matchesSeat) return false;
+
+        const matchesApplicant =
+          applicantFilter === 'all' ||
+          (applicantFilter === 'none' && applicantCount === 0) ||
+          (applicantFilter === 'has' && applicantCount >= 1) ||
+          (applicantFilter === 'multi' && applicantCount >= 2);
+
+        if (!matchesApplicant) return false;
+
+        if (!keyword) return true;
+
+        const searchSource = [
+          slot.date,
+          getSlotLabel(slot),
+          getSlotTimeText(slot),
+          String(slot.capacity),
+          String(slot.reserved_count),
+          slot.open_at ? formatDateTime(slot.open_at) : '즉시',
+        ]
+          .join(' ')
+          .toLowerCase();
+
+        return searchSource.includes(keyword);
+      })
+      .sort((a, b) => compareVisibleSlots(a, b, sortOption));
+  }, [applicantFilter, dateFilter, reservationCountBySlotId, searchTerm, seatFilter, slots, sortOption, statusFilter, today]);
+
+  const enrichedReservations = useMemo<ReservationWithSlot[]>(() => {
+    return [...reservations]
+      .map((reservation) => {
+        const slot = slotById.get(reservation.slot_id);
+        return {
+          ...reservation,
+          slotDate: slot?.date ?? '',
+          slotLabel: slot ? getSlotLabel(slot) : '삭제된 일정',
+          slotTime: slot ? getSlotTimeText(slot) : '-',
+        };
+      })
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  }, [reservations, slotById]);
+
+  const visibleReservations = useMemo(() => {
+    const keyword = reservationSearchTerm.trim().toLowerCase();
+    if (!keyword) return enrichedReservations;
+
+    return enrichedReservations.filter((reservation) =>
+      [
+        reservation.school_name,
+        reservation.student_name,
+        reservation.phone_number,
+        reservation.slotDate,
+        reservation.slotLabel,
+        reservation.slotTime,
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(keyword),
+    );
+  }, [enrichedReservations, reservationSearchTerm]);
+
+  const upcomingSlots = useMemo(() => visibleSlots.filter((slot) => slot.date >= today), [today, visibleSlots]);
+  const recentReservations = useMemo(() => enrichedReservations.slice(0, 6), [enrichedReservations]);
+
+  const allChecked = visibleSlots.length > 0 && visibleSlots.every((slot) => checkedSlotIds.includes(slot.id));
+
+  const stats = useMemo(() => {
+    const totalCapacity = slots.reduce((sum, slot) => sum + slot.capacity, 0);
+    const totalReserved = slots.reduce((sum, slot) => sum + slot.reserved_count, 0);
+    const closedSlots = slots.filter((slot) => isSlotClosed(slot)).length;
+    const scheduledOpenSlots = slots.filter((slot) => !!slot.open_at && !isSlotClosed(slot)).length;
+    const activeSlots = slots.filter((slot) => !isSlotClosed(slot) && !slot.open_at).length;
+    const totalRemainingSeats = slots.reduce((sum, slot) => sum + getRemainingSeats(slot), 0);
+
+    return {
+      totalSlots: slots.length,
+      totalCapacity,
+      totalReserved,
+      totalRemainingSeats,
+      closedSlots,
+      scheduledOpenSlots,
+      activeSlots,
+      reservationRate: totalCapacity ? Math.round((totalReserved / totalCapacity) * 100) : 0,
+    };
+  }, [slots]);
+
+  const visibleStats = useMemo(() => {
+    const visibleCapacity = visibleSlots.reduce((sum, slot) => sum + slot.capacity, 0);
+    const visibleReserved = visibleSlots.reduce((sum, slot) => sum + slot.reserved_count, 0);
+    return {
+      count: visibleSlots.length,
+      capacity: visibleCapacity,
+      reserved: visibleReserved,
+      remaining: Math.max(visibleCapacity - visibleReserved, 0),
+    };
+  }, [visibleSlots]);
 
   useEffect(() => {
     if (openImmediately && openAt) setOpenAt('');
@@ -101,12 +405,8 @@ export default function AdminClient({
     const nextReservations = reservationsJson.reservations ?? [];
     setSlots(nextSlots);
     setReservations(nextReservations);
-    setCheckedSlotIds((prev) =>
-      prev.filter((id) => nextSlots.some((slot: ReservationSlot) => slot.id === id))
-    );
-    setExpandedSlotId((prev) =>
-      prev && nextSlots.some((slot: ReservationSlot) => slot.id === prev) ? prev : null
-    );
+    setCheckedSlotIds((prev) => prev.filter((id) => nextSlots.some((slot: ReservationSlot) => slot.id === id)));
+    setExpandedSlotId((prev) => (prev && nextSlots.some((slot: ReservationSlot) => slot.id === prev) ? prev : null));
   }
 
   function clearFeedback() {
@@ -140,6 +440,7 @@ export default function AdminClient({
       setMessage(editingId ? '일정을 수정했습니다.' : '일정을 등록했습니다.');
       resetForm();
       await refreshData();
+      setActiveSection('schedules');
     } catch (err) {
       setError(err instanceof Error ? err.message : '처리 중 오류가 발생했습니다.');
     } finally {
@@ -190,6 +491,7 @@ export default function AdminClient({
         body: JSON.stringify({ ids: checkedSlotIds }),
       });
       const json = await res.json();
+
       if (!res.ok) throw new Error(json.error || '일괄 삭제 실패');
 
       setCheckedSlotIds([]);
@@ -262,6 +564,7 @@ export default function AdminClient({
     setCapacity(slot.capacity);
     setOpenAt(toDateTimeLocalValue(slot.open_at));
     setOpenImmediately(!slot.open_at);
+    setActiveSection('dashboard');
   }
 
   function resetForm() {
@@ -284,6 +587,13 @@ export default function AdminClient({
     setBulkOpenMode('keep');
   }
 
+  function resetFilters() {
+    setSearchTerm('');
+    setStatusFilter('all');
+    setDateFilter('all');
+    setSortOption('dateAsc');
+  }
+
   function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     setUploadFile(e.target.files?.[0] ?? null);
   }
@@ -295,7 +605,14 @@ export default function AdminClient({
 
   function toggleAllChecked() {
     if (isBusy) return;
-    setCheckedSlotIds((prev) => (prev.length === slots.length ? [] : slots.map((slot) => slot.id)));
+    setCheckedSlotIds((prev) => {
+      const visibleIds = visibleSlots.map((slot) => slot.id);
+      const allVisibleChecked = visibleIds.every((id) => prev.includes(id));
+      if (allVisibleChecked) {
+        return prev.filter((id) => !visibleIds.includes(id));
+      }
+      return Array.from(new Set([...prev, ...visibleIds]));
+    });
   }
 
   async function handleUpload(e: FormEvent) {
@@ -353,409 +670,564 @@ export default function AdminClient({
   }
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[440px_1fr]">
-      <section className="space-y-6">
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-xl font-semibold">{editingId ? '일정 수정' : '일정 등록'}</h2>
-            {submitting && (
-              <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                저장 중...
-              </span>
-            )}
-          </div>
-
-          {editingId && (
-            <p className="mt-2 text-sm text-amber-700">
-              현재 수정 모드입니다. 새 일정을 추가하려면 취소를 누르세요.
-            </p>
-          )}
-
-          <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-            <fieldset disabled={submitting || bulkUpdating || bulkDeleting || uploading} className="space-y-4 disabled:opacity-60">
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                required
-                className="w-full rounded-xl border border-slate-300 px-3 py-3"
-              />
-              <input
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                required
-                placeholder="반 이름"
-                className="w-full rounded-xl border border-slate-300 px-3 py-3"
-              />
-              <div className="grid gap-3 md:grid-cols-2">
-                <input
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  required
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3"
-                />
-                <input
-                  type="time"
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                  required
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3"
-                />
-              </div>
-              <input
-                type="number"
-                min={1}
-                value={capacity}
-                onChange={(e) => setCapacity(Number(e.target.value))}
-                required
-                className="w-full rounded-xl border border-slate-300 px-3 py-3"
-              />
-              <div className="space-y-3">
-                <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={openImmediately}
-                    onChange={(e) => setOpenImmediately(e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300"
-                  />
-                  즉시 신청 가능
-                </label>
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-700">신청 시작 일시</label>
-                  <input
-                    type="datetime-local"
-                    value={openAt}
-                    onChange={(e) => setOpenAt(e.target.value)}
-                    disabled={openImmediately}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-3 disabled:bg-slate-100 disabled:text-slate-400"
-                  />
-                </div>
-              </div>
-            </fieldset>
-
-            {message && (
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                {message}
-              </div>
-            )}
-            {error && (
-              <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                {error}
-              </div>
-            )}
-
-            <div className="flex gap-2">
-              <button
-                disabled={submitting || bulkUpdating || bulkDeleting || uploading}
-                className="flex-1 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:bg-slate-300"
-              >
-                {submitting ? (editingId ? '수정 중...' : '등록 중...') : editingId ? '일정 수정' : '일정 등록'}
-              </button>
-              {editingId && (
-                <button
-                  type="button"
-                  onClick={resetForm}
-                  disabled={submitting || bulkUpdating || bulkDeleting || uploading}
-                  className="rounded-xl border border-slate-300 px-4 py-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
-                >
-                  취소
-                </button>
-              )}
-            </div>
-          </form>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-xl font-semibold">xlsx 일괄 업로드</h2>
-            {uploading && (
-              <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                업로드 중...
-              </span>
-            )}
-          </div>
-
-          <form onSubmit={handleUpload} className="mt-4 space-y-4">
-            <fieldset disabled={uploading || submitting || bulkUpdating || bulkDeleting} className="space-y-4 disabled:opacity-60">
-              <input type="file" accept=".xlsx,.xls" onChange={handleFileChange} className="block w-full text-sm" />
-              <button
-                disabled={uploading}
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 disabled:bg-slate-100"
-              >
-                {uploading ? '업로드 중...' : '엑셀로 일정 일괄 등록'}
-              </button>
-            </fieldset>
-          </form>
-        </div>
+    <div className="space-y-6">
+      <section className="flex flex-wrap gap-2">
+        <SectionChip active={activeSection === 'dashboard'} onClick={() => setActiveSection('dashboard')} title="대시보드" />
+        <SectionChip active={activeSection === 'schedules'} onClick={() => setActiveSection('schedules')} title="일정관리" />
+        <SectionChip active={activeSection === 'applicants'} onClick={() => setActiveSection('applicants')} title="신청자관리" />
       </section>
 
-      <section className="space-y-6">
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <h2 className="text-xl font-semibold">등록된 일정</h2>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-slate-500">선택 {checkedSlotIds.length}개</span>
-              <button
-                type="button"
-                onClick={handleBulkDelete}
-                disabled={checkedSlotIds.length === 0 || isBusy}
-                className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
-              >
-                {bulkDeleting ? '삭제 중...' : '선택 일정 삭제'}
-              </button>
+      {(message || error) && (
+        <div
+          className={`rounded-3xl border px-4 py-3 text-sm shadow-sm ${
+            error
+              ? 'border-rose-200 bg-rose-50 text-rose-700'
+              : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+          }`}
+        >
+          {error ?? message}
+        </div>
+      )}
+
+      <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)] 2xl:grid-cols-[380px_minmax(0,1fr)]">
+        <section className="space-y-6 xl:sticky xl:top-6 xl:self-start">
+          <div className="rounded-[28px] border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-5 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Operations</p>
+                <h2 className="mt-2 text-xl font-semibold text-slate-900">빠른 운영 패널</h2>
+                <p className="mt-1 text-sm leading-6 text-slate-600">신규 등록, 수정, 오픈 시점 설정을 한 화면에서 처리합니다.</p>
+              </div>
+              {submitting && <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">저장 중</span>}
             </div>
-          </div>
 
-          {(bulkUpdating || bulkDeleting) && (
-            <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-              {bulkUpdating
-                ? `선택한 일정 ${checkedSlotIds.length}개를 수정하는 중입니다...`
-                : `선택한 일정 ${checkedSlotIds.length}개를 삭제하는 중입니다...`}
-            </div>
-          )}
-
-          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <h3 className="text-sm font-semibold text-slate-900">선택 일정 일괄 수정</h3>
-
-            <fieldset disabled={bulkUpdating || bulkDeleting || submitting || uploading} className="mt-4 space-y-4 disabled:opacity-60">
-              <div className="grid gap-3 md:grid-cols-2">
-                <input
-                  type="date"
-                  value={bulkDate}
-                  onChange={(e) => setBulkDate(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3"
-                />
-                <input
-                  value={bulkLabel}
-                  onChange={(e) => setBulkLabel(e.target.value)}
-                  placeholder="새 반 이름"
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3"
-                />
-                <input
-                  type="time"
-                  value={bulkStartTime}
-                  onChange={(e) => setBulkStartTime(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3"
-                />
-                <input
-                  type="time"
-                  value={bulkEndTime}
-                  onChange={(e) => setBulkEndTime(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3"
-                />
+            {editingId && (
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                수정 모드입니다. 저장하면 기존 일정이 갱신되고, 취소하면 신규 등록 모드로 돌아갑니다.
               </div>
+            )}
 
-              <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
-                <p className="text-sm font-medium text-slate-700">신청 시작 설정</p>
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="radio"
-                    name="bulk-open-mode"
-                    checked={bulkOpenMode === 'keep'}
-                    onChange={() => setBulkOpenMode('keep')}
-                    className="h-4 w-4"
-                  />
-                  현재 설정 유지
-                </label>
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="radio"
-                    name="bulk-open-mode"
-                    checked={bulkOpenMode === 'immediate'}
-                    onChange={() => setBulkOpenMode('immediate')}
-                    className="h-4 w-4"
-                  />
-                  선택 일정 모두 즉시 신청 가능으로 변경
-                </label>
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="radio"
-                    name="bulk-open-mode"
-                    checked={bulkOpenMode === 'datetime'}
-                    onChange={() => setBulkOpenMode('datetime')}
-                    className="h-4 w-4"
-                  />
-                  특정 신청 시작 일시로 변경
-                </label>
-                <input
-                  type="datetime-local"
-                  value={bulkOpenAt}
-                  onChange={(e) => setBulkOpenAt(e.target.value)}
-                  disabled={bulkOpenMode !== 'datetime'}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 disabled:bg-slate-100 disabled:text-slate-400"
-                />
-              </div>
+            <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+              <fieldset disabled={submitting || bulkUpdating || bulkDeleting || uploading} className="space-y-4 disabled:opacity-60">
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+                  <div className="sm:col-span-2 xl:col-span-1">
+                    <label className="mb-2 block text-sm font-medium text-slate-700">수업 날짜</label>
+                    <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required className={inputClassName()} />
+                  </div>
+                  <div className="sm:col-span-2 xl:col-span-1">
+                    <label className="mb-2 block text-sm font-medium text-slate-700">반 이름</label>
+                    <input value={label} onChange={(e) => setLabel(e.target.value)} required placeholder="예: A반" className={inputClassName()} />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">시작 시간</label>
+                    <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} required className={inputClassName()} />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">종료 시간</label>
+                    <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} required className={inputClassName()} />
+                  </div>
+                  <div className="sm:col-span-2 xl:col-span-1">
+                    <label className="mb-2 block text-sm font-medium text-slate-700">정원</label>
+                    <input type="number" min={1} value={capacity} onChange={(e) => setCapacity(Number(e.target.value))} required className={inputClassName()} />
+                  </div>
+                </div>
 
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={handleBulkUpdate}
-                  disabled={checkedSlotIds.length === 0 || isBusy}
-                  className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  {bulkUpdating ? '일괄 수정 중...' : '선택 일정 일괄 수정'}
-                </button>
-                <button
-                  type="button"
-                  onClick={resetBulkForm}
-                  disabled={isBusy}
-                  className="rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-700 disabled:bg-slate-100 disabled:text-slate-400"
-                >
-                  일괄 수정 입력 초기화
-                </button>
-              </div>
-            </fieldset>
-          </div>
-
-          <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-left text-slate-500">
-                  <th className="px-3 py-3">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
                     <input
                       type="checkbox"
-                      checked={allChecked}
-                      onChange={toggleAllChecked}
-                      aria-label="전체 선택"
-                      disabled={isBusy}
+                      checked={openImmediately}
+                      onChange={(e) => setOpenImmediately(e.target.checked)}
                       className="h-4 w-4 rounded border-slate-300"
                     />
-                  </th>
-                  <th className="px-3 py-3">날짜</th>
-                  <th className="px-3 py-3">반 / 시간</th>
-                  <th className="px-3 py-3">정원</th>
-                  <th className="px-3 py-3">현황</th>
-                  <th className="px-3 py-3">신청 시작</th>
-                  <th className="px-3 py-3">상태</th>
-                  <th className="px-3 py-3">관리</th>
-                </tr>
-              </thead>
-              <tbody>
-                {slots.map((slot) => {
-                  const isClosed = slot.is_closed || slot.reserved_count >= slot.capacity;
+                    즉시 신청 가능
+                  </label>
+                  <div className="mt-3">
+                    <label className="mb-2 block text-sm font-medium text-slate-700">신청 시작 일시</label>
+                    <input
+                      type="datetime-local"
+                      value={openAt}
+                      onChange={(e) => setOpenAt(e.target.value)}
+                      disabled={openImmediately}
+                      className={`${inputClassName()} disabled:bg-slate-100 disabled:text-slate-400`}
+                    />
+                  </div>
+                </div>
+              </fieldset>
+
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button
+                  disabled={submitting || bulkUpdating || bulkDeleting || uploading}
+                  className="flex-1 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:bg-slate-300"
+                >
+                  {submitting ? (editingId ? '수정 중...' : '등록 중...') : editingId ? '일정 수정' : '일정 등록'}
+                </button>
+                {editingId && (
+                  <button
+                    type="button"
+                    onClick={resetForm}
+                    disabled={submitting || bulkUpdating || bulkDeleting || uploading}
+                    className="rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-700 disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                    취소
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+
+          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">xlsx 일괄 업로드</h2>
+                <p className="mt-1 text-sm text-slate-600">현장에서 여러 일정을 한 번에 등록할 때 유용합니다.</p>
+              </div>
+              {uploading && <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">업로드 중</span>}
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs leading-6 text-slate-600">
+              <p>권장 열 순서: 날짜 / 반 이름 / 시작 시간 / 종료 시간 / 정원 / 신청 시작 일시</p>
+              <p>시간은 24시간 형식, 날짜는 yyyy-mm-dd 형식으로 맞추면 오류를 줄일 수 있습니다.</p>
+            </div>
+
+            <form onSubmit={handleUpload} className="mt-4 space-y-4">
+              <fieldset disabled={uploading || submitting || bulkUpdating || bulkDeleting} className="space-y-4 disabled:opacity-60">
+                <input type="file" accept=".xlsx,.xls" onChange={handleFileChange} className="block w-full text-sm" />
+                <button
+                  disabled={uploading}
+                  className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 disabled:bg-slate-100"
+                >
+                  {uploading ? '업로드 중...' : '엑셀로 일정 일괄 등록'}
+                </button>
+              </fieldset>
+            </form>
+          </div>
+
+          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">운영 인사이트</h2>
+                <p className="mt-1 text-sm text-slate-600">오늘 이후 일정과 최근 신청 흐름을 바로 확인합니다.</p>
+              </div>
+              <button type="button" onClick={() => setActiveSection('applicants')} className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700">
+                신청자 보기
+              </button>
+            </div>
+            <div className="mt-4 grid gap-3">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <span className="font-medium text-slate-700">오늘 이후 일정</span>
+                  <span className="text-slate-500">{upcomingSlots.length}개</span>
+                </div>
+                <div className="mt-2 text-2xl font-semibold text-slate-900">{upcomingSlots.reduce((sum, slot) => sum + getRemainingSeats(slot), 0)}석</div>
+                <p className="mt-1 text-xs text-slate-500">예약 가능한 잔여 좌석 총합</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <span className="font-medium text-slate-700">최근 신청</span>
+                  <span className="text-slate-500">최근 6건</span>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {recentReservations.length === 0 ? (
+                    <p className="text-sm text-slate-500">아직 신청 내역이 없습니다.</p>
+                  ) : (
+                    recentReservations.map((reservation) => (
+                      <div key={reservation.id} className="rounded-xl border border-white bg-white px-3 py-2 shadow-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">{reservation.student_name}</p>
+                            <p className="mt-1 text-xs text-slate-500">{reservation.school_name} · {reservation.slotLabel}</p>
+                          </div>
+                          <span className="text-[11px] text-slate-400">{formatDateTime(reservation.created_at)}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-6">
+          {activeSection === 'dashboard' && (
+            <div className="space-y-6">
+              <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <h2 className="text-2xl font-semibold text-slate-900">대시보드</h2>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">접수 중 {stats.activeSlots}</span>
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">오픈 예정 {stats.scheduledOpenSlots}</span>
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">마감 {stats.closedSlots}</span>
+                  </div>
+                </div>
+
+                <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
+                  <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-sm font-semibold text-slate-900">전체 좌석 점유율</h3>
+                      <span className="text-xs text-slate-500">{stats.totalReserved}/{stats.totalCapacity}</span>
+                    </div>
+                    <div className="mt-4 h-4 overflow-hidden rounded-full bg-slate-200">
+                      <div className="h-full rounded-full bg-slate-900" style={{ width: `${stats.reservationRate}%` }} />
+                    </div>
+                    <div className="mt-3 flex items-center justify-between text-sm text-slate-600">
+                      <span>예약률 {stats.reservationRate}%</span>
+                      <span>잔여 좌석 {stats.totalRemainingSeats}</span>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+                    <h3 className="text-sm font-semibold text-slate-900">현재 작업 상태</h3>
+                    <div className="mt-4 space-y-3 text-sm text-slate-600">
+                      <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3">
+                        <span>선택된 일정</span>
+                        <span className="font-semibold text-slate-900">{checkedSlotIds.length}개</span>
+                      </div>
+                      <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3">
+                        <span>전체 신청자</span>
+                        <span className="font-semibold text-slate-900">{reservations.length}명</span>
+                      </div>
+                      <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3">
+                        <span>최근 필터 표시 일정</span>
+                        <span className="font-semibold text-slate-900">{visibleStats.count}개</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900">곧 진행될 일정</h3>
+                    <p className="mt-1 text-sm text-slate-600">오늘 이후 일정 기준으로 빠르게 운영 준비 상태를 점검합니다.</p>
+                  </div>
+                  <button type="button" onClick={() => setActiveSection('schedules')} className="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700">
+                    일정관리 열기
+                  </button>
+                </div>
+                <div className="mt-4 grid gap-3">
+                  {upcomingSlots.slice(0, 6).map((slot) => (
+                    <div key={slot.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">{formatKoreanDate(slot.date, slot.day_of_week)} · {getSlotLabel(slot)}</p>
+                        <p className="mt-1 text-sm text-slate-500">{getSlotTimeText(slot)} · 신청 {slot.reserved_count}/{slot.capacity}</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <StatusPill slot={slot} />
+                        <button type="button" onClick={() => { setActiveSection('schedules'); setExpandedSlotId(slot.id); }} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700">
+                          상세 보기
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {upcomingSlots.length === 0 && <p className="text-sm text-slate-500">오늘 이후 예정된 일정이 없습니다.</p>}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeSection === 'schedules' && (
+            <div className="space-y-5">
+
+
+              <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900">선택 일정 작업</h3>
+                    <p className="mt-1 text-sm text-slate-600">선택한 일정만 한 번에 수정하거나 삭제합니다.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleBulkUpdate}
+                      disabled={checkedSlotIds.length === 0 || isBusy}
+                      className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:bg-slate-300"
+                    >
+                      {bulkUpdating ? '일괄 수정 중...' : '선택 일정 일괄 수정'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleBulkDelete}
+                      disabled={checkedSlotIds.length === 0 || isBusy}
+                      className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+                    >
+                      {bulkDeleting ? '삭제 중...' : '선택 일정 삭제'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetBulkForm}
+                      disabled={isBusy}
+                      className="rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-700 disabled:bg-slate-100 disabled:text-slate-400"
+                    >
+                      입력 초기화
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-5">
+                  <input type="date" value={bulkDate} onChange={(e) => setBulkDate(e.target.value)} className={inputClassName()} />
+                  <input value={bulkLabel} onChange={(e) => setBulkLabel(e.target.value)} placeholder="반 이름 변경" className={inputClassName()} />
+                  <input type="time" value={bulkStartTime} onChange={(e) => setBulkStartTime(e.target.value)} className={inputClassName()} />
+                  <input type="time" value={bulkEndTime} onChange={(e) => setBulkEndTime(e.target.value)} className={inputClassName()} />
+                  <select value={bulkOpenMode} onChange={(e) => setBulkOpenMode(e.target.value as BulkOpenMode)} className={inputClassName()}>
+                    <option value="keep">신청 시작 유지</option>
+                    <option value="immediate">즉시 오픈</option>
+                    <option value="datetime">특정 시점으로 변경</option>
+                  </select>
+                </div>
+                {bulkOpenMode === 'datetime' && (
+                  <div className="mt-3 max-w-sm">
+                    <input type="datetime-local" value={bulkOpenAt} onChange={(e) => setBulkOpenAt(e.target.value)} className={inputClassName()} />
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3 lg:hidden">
+                {visibleSlots.length === 0 && (
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                    현재 조건에 맞는 일정이 없습니다. 검색어나 상태 필터를 조정해 주세요.
+                  </div>
+                )}
+                {visibleSlots.map((slot) => {
                   const isChecked = checkedSlotIds.includes(slot.id);
-                  const slotReservations = reservations.filter((reservation) => reservation.slot_id === slot.id);
+                  const slotReservations = reservationCountBySlotId.get(slot.id) ?? [];
                   const expanded = expandedSlotId === slot.id;
-                  const tone = getSlotTone(slot);
+                  const occupancy = getOccupancy(slot);
 
                   return (
-                    <React.Fragment key={slot.id}>
-                      <tr className={`border-b border-slate-100 ${tone.row}`}>
-                        <td className="px-3 py-3 align-middle">
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => toggleSlotChecked(slot.id)}
-                            disabled={isBusy}
-                            className="h-4 w-4 rounded border-slate-300"
-                          />
-                        </td>
-                        <td className="px-3 py-3">
-                          <span className="font-medium text-slate-800">
-                            {formatKoreanDate(slot.date, slot.day_of_week)}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3">
-                          <div className={`inline-flex flex-col rounded-2xl px-3 py-2 text-xs font-semibold ${tone.badge}`}>
-                            <span className="break-keep">{getSlotLabel(slot)}</span>
-                            <span className="mt-0.5 whitespace-nowrap text-[11px] font-medium">{getSlotTimeText(slot)}</span>
+                    <div key={slot.id} className="overflow-hidden rounded-[24px] border border-slate-200 bg-white">
+                      <div className="space-y-4 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">{formatKoreanDate(slot.date, slot.day_of_week)}</p>
+                            <p className="mt-1 text-sm text-slate-500">{getSlotLabel(slot)} · {getSlotTimeText(slot)}</p>
                           </div>
-                        </td>
-                        <td className="px-3 py-3">{slot.capacity}명</td>
-                        <td className="px-3 py-3">
-                          {slot.reserved_count}/{slot.capacity}
-                        </td>
-                        <td className="px-3 py-3">{slot.open_at ? formatDateTime(slot.open_at) : '즉시'}</td>
-                        <td className="px-3 py-3">{isClosed ? '마감' : '진행중'}</td>
-                        <td className="px-3 py-3">
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              onClick={() => startEdit(slot)}
-                              disabled={isBusy}
-                              className="rounded-lg border border-slate-300 px-3 py-1.5 disabled:bg-slate-100 disabled:text-slate-400"
-                            >
-                              수정
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDelete(slot.id)}
-                              disabled={isBusy}
-                              className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-rose-700 disabled:bg-slate-100 disabled:text-slate-400"
-                            >
-                              {deletingSlotId === slot.id ? '삭제 중...' : '삭제'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setExpandedSlotId(expanded ? null : slot.id)}
-                              disabled={isBusy}
-                              className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-blue-700 disabled:bg-slate-100 disabled:text-slate-400"
-                            >
-                              {expanded ? '닫기' : '신청자 보기'}
-                            </button>
+                          <div className="flex items-center gap-2">
+                            <input type="checkbox" checked={isChecked} onChange={() => toggleSlotChecked(slot.id)} disabled={isBusy} className="h-4 w-4 rounded border-slate-300" />
+                            <StatusPill slot={slot} />
                           </div>
-                        </td>
-                      </tr>
-
+                        </div>
+                        <div className="rounded-2xl bg-slate-50 p-3">
+                          <div className="flex items-center justify-between text-xs text-slate-500"><span>신청 {slot.reserved_count}/{slot.capacity}</span><span>잔여 {getRemainingSeats(slot)}석</span></div>
+                          <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-slate-900" style={{ width: `${occupancy}%` }} /></div>
+                          <p className="mt-3 text-xs text-slate-500">신청 시작: {slot.open_at ? formatDateTime(slot.open_at) : '즉시'}</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" onClick={() => startEdit(slot)} disabled={isBusy} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400">수정</button>
+                          <button type="button" onClick={() => handleDelete(slot.id)} disabled={isBusy} className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 disabled:bg-slate-100 disabled:text-slate-400">{deletingSlotId === slot.id ? '삭제 중...' : '삭제'}</button>
+                          <button type="button" onClick={() => setExpandedSlotId(expanded ? null : slot.id)} disabled={isBusy} className="rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm text-blue-700 disabled:bg-slate-100 disabled:text-slate-400">{expanded ? '신청자 닫기' : `신청자 ${slotReservations.length}명`}</button>
+                        </div>
+                      </div>
                       {expanded && (
-                        <tr className={`border-b border-slate-100 ${tone.row}`}>
-                          <td colSpan={8} className="px-4 py-4">
-                            <div className={`rounded-xl border bg-white p-4 ${tone.border}`}>
-                              <div className="mb-3 flex items-center justify-between gap-2">
-                                <p className="text-sm font-semibold text-slate-900">해당 일정 신청자 목록</p>
-                                <span className="text-xs text-slate-500">{slotReservations.length}명</span>
-                              </div>
-
-                              {slotReservations.length === 0 ? (
-                                <p className="text-sm text-slate-500">신청자가 없습니다.</p>
-                              ) : (
-                                <div className="overflow-x-auto">
-                                  <table className="min-w-full text-sm">
-                                    <thead>
-                                      <tr className="border-b border-slate-200 text-left text-slate-500">
-                                        <th className="px-3 py-2">학교</th>
-                                        <th className="px-3 py-2">학생명</th>
-                                        <th className="px-3 py-2">전화번호</th>
-                                        <th className="px-3 py-2">신청일시</th>
-                                        <th className="px-3 py-2">관리</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {slotReservations.map((reservation) => (
-                                        <tr key={reservation.id} className="border-b border-slate-100">
-                                          <td className="px-3 py-2">{reservation.school_name}</td>
-                                          <td className="px-3 py-2">{reservation.student_name}</td>
-                                          <td className="px-3 py-2">{reservation.phone_number}</td>
-                                          <td className="px-3 py-2">{formatDateTime(reservation.created_at)}</td>
-                                          <td className="px-3 py-2">
-                                            <button
-                                              type="button"
-                                              onClick={() => handleDeleteReservation(reservation.id)}
-                                              disabled={isBusy}
-                                              className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-rose-700 disabled:bg-slate-100 disabled:text-slate-400"
-                                            >
-                                              {deletingReservationId === reservation.id ? '삭제 중...' : '삭제'}
-                                            </button>
-                                          </td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
+                        <div className="border-t border-slate-200 bg-white px-4 py-4">
+                          <div className="mb-3 flex items-center justify-between gap-2"><p className="text-sm font-semibold text-slate-900">해당 일정 신청자 목록</p><span className="text-xs text-slate-500">{slotReservations.length}명</span></div>
+                          <ReservationList reservations={slotReservations} isBusy={isBusy} deletingReservationId={deletingReservationId} onDelete={handleDeleteReservation} />
+                        </div>
                       )}
-                    </React.Fragment>
+                    </div>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
+              </div>
+
+              <div className="hidden lg:block">
+                <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+                  <div className="max-h-[920px] overflow-auto 2xl:max-h-[1080px]">
+                    <table className="min-w-full text-sm">
+                      <thead className="sticky top-0 z-10 bg-slate-50 shadow-[inset_0_-1px_0_0_rgba(226,232,240,1)]">
+                        <tr className="text-left text-slate-500">
+                          <th className="px-4 py-3"><input type="checkbox" checked={allChecked} onChange={toggleAllChecked} aria-label="전체 선택" disabled={isBusy} className="h-4 w-4 rounded border-slate-300" /></th>
+                          <th className="px-4 py-3">일정</th>
+                          <th className="px-4 py-3">상태 / 신청 시작</th>
+                          <th className="px-4 py-3">좌석</th>
+                          <th className="px-4 py-3">신청자</th>
+                          <th className="px-4 py-3">관리</th>
+                        </tr>
+                        <tr className="border-t border-slate-200 bg-white align-top text-left text-xs text-slate-500">
+                          <th className="px-4 py-3"></th>
+                          <th className="px-4 py-3">
+                            <input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="날짜·반·시간 검색" className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs outline-none focus:border-slate-500" />
+                          </th>
+                          <th className="px-4 py-3">
+                            <div className="grid gap-2">
+                              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)} className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs outline-none focus:border-slate-500">
+                                <option value="all">전체 상태</option>
+                                <option value="open">접수 중</option>
+                                <option value="closed">마감</option>
+                                <option value="scheduled">오픈 예정</option>
+                              </select>
+                              <select value={sortOption} onChange={(e) => setSortOption(e.target.value as SortOption)} className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs outline-none focus:border-slate-500">
+                                <option value="dateAsc">신청 시작 빠른순</option>
+                                <option value="dateDesc">신청 시작 늦은순</option>
+                                <option value="createdDesc">최근 생성순</option>
+                              </select>
+                            </div>
+                          </th>
+                          <th className="px-4 py-3">
+                            <select value={seatFilter} onChange={(e) => setSeatFilter(e.target.value as SeatFilter)} className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs outline-none focus:border-slate-500">
+                              <option value="all">전체 좌석</option>
+                              <option value="available">여유 있음</option>
+                              <option value="tight">1석 남음</option>
+                              <option value="full">마감</option>
+                            </select>
+                          </th>
+                          <th className="px-4 py-3">
+                            <select value={applicantFilter} onChange={(e) => setApplicantFilter(e.target.value as ApplicantFilter)} className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs outline-none focus:border-slate-500">
+                              <option value="all">전체 신청자</option>
+                              <option value="none">0명</option>
+                              <option value="has">1명 이상</option>
+                              <option value="multi">2명 이상</option>
+                            </select>
+                          </th>
+                          <th className="px-4 py-3">
+                            <button type="button" onClick={resetFilters} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700">초기화</button>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleSlots.length === 0 && (
+                          <tr><td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-500">현재 조건에 맞는 일정이 없습니다. 검색어나 상태 필터를 조정해 주세요.</td></tr>
+                        )}
+                        {visibleSlots.map((slot) => {
+                          const isChecked = checkedSlotIds.includes(slot.id);
+                          const slotReservations = reservationCountBySlotId.get(slot.id) ?? [];
+                          const expanded = expandedSlotId === slot.id;
+                          const occupancy = getOccupancy(slot);
+                          return (
+                            <React.Fragment key={slot.id}>
+                              <tr className="border-b border-slate-100 align-top hover:bg-slate-50">
+                                <td className="px-4 py-4 align-middle"><input type="checkbox" checked={isChecked} onChange={() => toggleSlotChecked(slot.id)} disabled={isBusy} className="h-4 w-4 rounded border-slate-300" /></td>
+                                <td className="px-4 py-4">
+                                  <p className="font-semibold text-slate-900">{formatKoreanDate(slot.date, slot.day_of_week)}</p>
+                                  <p className="mt-1 text-sm text-slate-600">{getSlotLabel(slot)} · {getSlotTimeText(slot)}</p>
+                                </td>
+                                <td className="px-4 py-4">
+                                  <div className="space-y-2"><StatusPill slot={slot} /><p className="text-xs text-slate-500">{slot.open_at ? formatDateTime(slot.open_at) : '즉시 오픈'}</p></div>
+                                </td>
+                                <td className="px-4 py-4 min-w-[180px]">
+                                  <div className="flex items-center justify-between text-xs text-slate-500"><span>{slot.reserved_count}/{slot.capacity}명</span><span>잔여 {getRemainingSeats(slot)}석</span></div>
+                                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-slate-900" style={{ width: `${occupancy}%` }} /></div>
+                                </td>
+                                <td className="px-4 py-4 whitespace-nowrap text-slate-700">{slotReservations.length}명</td>
+                                <td className="px-4 py-4">
+                                  <div className="flex flex-wrap gap-2">
+                                    <button type="button" onClick={() => startEdit(slot)} disabled={isBusy} className="rounded-lg border border-slate-300 px-3 py-1.5 disabled:bg-slate-100 disabled:text-slate-400">수정</button>
+                                    <button type="button" onClick={() => handleDelete(slot.id)} disabled={isBusy} className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-rose-700 disabled:bg-slate-100 disabled:text-slate-400">{deletingSlotId === slot.id ? '삭제 중...' : '삭제'}</button>
+                                    <button type="button" onClick={() => setExpandedSlotId(expanded ? null : slot.id)} disabled={isBusy} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-blue-700 disabled:bg-slate-100 disabled:text-slate-400">{expanded ? '닫기' : '신청자 보기'}</button>
+                                  </div>
+                                </td>
+                              </tr>
+                              {expanded && (
+                                <tr className="border-b border-slate-100 bg-slate-50">
+                                  <td colSpan={6} className="px-4 py-4">
+                                    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                                      <div className="mb-3 flex items-center justify-between gap-2"><p className="text-sm font-semibold text-slate-900">해당 일정 신청자 목록</p><span className="text-xs text-slate-500">{slotReservations.length}명</span></div>
+                                      <ReservationList reservations={slotReservations} isBusy={isBusy} deletingReservationId={deletingReservationId} onDelete={handleDeleteReservation} />
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeSection === 'applicants' && (
+            <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <h2 className="text-2xl font-semibold text-slate-900">신청자관리</h2>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  전체 {reservations.length}건 · 검색 결과 {visibleReservations.length}건
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-4 2xl:grid-cols-[minmax(0,1fr)_340px]">
+                <div className="space-y-4">
+                  <input value={reservationSearchTerm} onChange={(e) => setReservationSearchTerm(e.target.value)} placeholder="학생명, 학교명, 전화번호, 반 이름으로 검색" className={inputClassName()} />
+
+                  <div className="overflow-hidden rounded-[24px] border border-slate-200">
+                    <div className="max-h-[920px] overflow-auto 2xl:max-h-[1080px]">
+                      <table className="min-w-full text-sm">
+                        <thead className="sticky top-0 z-10 bg-slate-50 shadow-[inset_0_-1px_0_0_rgba(226,232,240,1)]">
+                          <tr className="text-left text-slate-500">
+                            <th className="px-4 py-3">신청자</th>
+                            <th className="px-4 py-3">학교 / 연락처</th>
+                            <th className="px-4 py-3">신청 일정</th>
+                            <th className="px-4 py-3">신청일시</th>
+                            <th className="px-4 py-3">관리</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visibleReservations.length === 0 && (
+                            <tr>
+                              <td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-500">검색 조건에 맞는 신청 내역이 없습니다.</td>
+                            </tr>
+                          )}
+                          {visibleReservations.map((reservation) => (
+                            <tr key={reservation.id} className="border-b border-slate-100 align-top">
+                              <td className="px-4 py-4">
+                                <p className="font-semibold text-slate-900">{reservation.student_name}</p>
+                              </td>
+                              <td className="px-4 py-4 text-slate-600">
+                                <p>{reservation.school_name}</p>
+                                <p className="mt-1 text-xs text-slate-500">{reservation.phone_number}</p>
+                              </td>
+                              <td className="px-4 py-4 text-slate-600">
+                                <p>{reservation.slotDate ? formatDateOnlyKorean(reservation.slotDate) : '삭제된 일정'}</p>
+                                <p className="mt-1 text-xs text-slate-500">{reservation.slotLabel} · {reservation.slotTime}</p>
+                              </td>
+                              <td className="px-4 py-4 text-slate-600">{formatDateTime(reservation.created_at)}</td>
+                              <td className="px-4 py-4">
+                                <button type="button" onClick={() => handleDeleteReservation(reservation.id)} disabled={isBusy} className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-rose-700 disabled:bg-slate-100 disabled:text-slate-400">{deletingReservationId === reservation.id ? '삭제 중...' : '삭제'}</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+                    <h3 className="text-sm font-semibold text-slate-900">최근 신청 내역</h3>
+                    <div className="mt-4 space-y-3">
+                      {recentReservations.length === 0 ? (
+                        <p className="text-sm text-slate-500">아직 신청 내역이 없습니다.</p>
+                      ) : (
+                        recentReservations.map((reservation) => (
+                          <div key={reservation.id} className="rounded-2xl border border-white bg-white p-4 shadow-sm">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-semibold text-slate-900">{reservation.student_name}</p>
+                                <p className="mt-1 text-xs text-slate-500">{reservation.school_name}</p>
+                                <p className="mt-2 text-xs text-slate-500">{reservation.slotDate ? formatDateOnlyKorean(reservation.slotDate) : '삭제된 일정'} · {reservation.slotLabel}</p>
+                              </div>
+                              <span className="text-[11px] text-slate-400">{formatDateTime(reservation.created_at)}</span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

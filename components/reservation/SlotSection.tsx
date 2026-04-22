@@ -20,12 +20,12 @@ type CardProps = {
 
 function SlotSection({ title, subtitle, children }: Props) {
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+    <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
       <div className="mb-3">
-        <h3 className="text-sm font-semibold text-slate-900">
-          {title}
-          {subtitle ? <span className="ml-2 text-xs font-medium text-slate-500">· {subtitle}</span> : null}
-        </h3>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+          {subtitle ? <p className="text-xs font-medium text-slate-500">· {subtitle}</p> : null}
+        </div>
       </div>
 
       {children}
