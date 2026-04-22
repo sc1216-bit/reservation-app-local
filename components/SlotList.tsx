@@ -13,6 +13,7 @@ import SelectionSummaryBar from './reservation/SelectionSummaryBar';
 import SlotSection from './reservation/SlotSection';
 import ProgressSubmitBar from './reservation/ProgressSubmitBar';
 import ReservationCalendar from './reservation/ReservationCalendar';
+import CompletedReservations from './reservation/CompletedReservations';
 import { GuardianProfile } from './ReservationForm';
 
 const REQUIRED_COUNT = 5;
@@ -26,7 +27,7 @@ const CONSENT_ITEMS = [
 ] as const;
 
 type Step = 'auth' | 'consent' | 'profile' | 'slots';
-type SlotFlowStep = 'students' | 'schedule' | 'review';
+type SlotFlowStep = 'students' | 'schedule' | 'review' | 'completed';
 
 type ReservationGroup = {
   studentName: string;
@@ -235,6 +236,18 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
     [groupedReservations]
   );
 
+  const commonCompletedSlotIds = useMemo(() => {
+    if (!groupedReservations.length) return new Set<string>();
+    const [first, ...rest] = groupedReservations;
+    return new Set(first.slotIds.filter((slotId) => rest.every((group) => group.slotIds.includes(slotId))));
+  }, [groupedReservations]);
+
+  const hasDifferentCompletedSchedules = useMemo(() => {
+    if (groupedReservations.length <= 1) return false;
+    const signatures = groupedReservations.map((group) => getScheduleSignature(group.slotIds));
+    return new Set(signatures).size > 1;
+  }, [groupedReservations]);
+
   const groupedSlots = useMemo(() => {
     const map = new Map<string, ReservationSlot[]>();
     [...slots].sort(sortSlots).forEach((slot) => {
@@ -323,21 +336,32 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
   }, [selectedStudents, groupedReservationMap]);
 
   useEffect(() => {
-    if (!selectedStudentNames.length) {
+    if (!selectedStudentNames.length && slotFlowStep !== 'students') {
       setSlotFlowStep('students');
       return;
     }
 
-    if (slotFlowStep === 'students') {
+    if (
+      selectedStudentNames.length > 0 &&
+      slotFlowStep === 'students' &&
+      !selectedStudentsAlreadyCompleted
+    ) {
       setSlotFlowStep('schedule');
     }
-  }, [selectedStudentNames.length, slotFlowStep]);
+  }, [selectedStudentNames.length, slotFlowStep, selectedStudentsAlreadyCompleted]);
 
   useEffect(() => {
     if (selectedSlotIds.length === REQUIRED_COUNT && slotFlowStep === 'schedule') {
       setSlotFlowStep('review');
     }
   }, [selectedSlotIds.length, slotFlowStep]);
+
+  useEffect(() => {
+    if (slotFlowStep === 'schedule' && selectedStudentsAlreadyCompleted) {
+      setSlotFlowStep('students');
+      setError('선택한 학생은 이미 신청이 완료되어 있습니다. 일정 보기나 취소 후 다시 선택해 주세요.');
+    }
+  }, [slotFlowStep, selectedStudentsAlreadyCompleted]);
 
   useEffect(() => {
     if (!selectedSlotIds.length) return;
@@ -567,8 +591,8 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
         `${selectedStudents.map((student) => student.studentName).join(', ')} 학생의 ${REQUIRED_COUNT}개 일정 신청이 완료되었습니다.`
       );
       setSelectedSlotIds([]);
-      setSlotFlowStep('schedule');
       await Promise.all([refreshSlots(), refreshMyReservations()]);
+      setSlotFlowStep('completed');
     } catch (err) {
       setError(err instanceof Error ? err.message : '오류가 발생했습니다.');
     } finally {
@@ -604,7 +628,7 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
       setSelectedStudentNames([studentName]);
       setSelectedSlotIds([]);
       setStep('slots');
-      setSlotFlowStep('schedule');
+      setSlotFlowStep('students');
       setMessage(null);
       setError(null);
     } catch (err) {
@@ -656,19 +680,23 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
                 { key: 'students', label: '1 학생 선택' },
                 { key: 'schedule', label: '2 날짜/시간 선택' },
                 { key: 'review', label: '3 확인 후 신청' },
+                { key: 'completed', label: '4 신청 완료' },
               ].map((item, index) => {
                 const active = slotFlowStep === item.key;
                 const enabled =
                   item.key === 'students' ||
                   (item.key === 'schedule' && selectedStudents.length > 0) ||
-                  (item.key === 'review' && selectedSlotIds.length === REQUIRED_COUNT);
+                  (item.key === 'review' && selectedSlotIds.length === REQUIRED_COUNT) ||
+                  (item.key === 'completed' && groupedReservations.length > 0);
 
                 const onClick =
                   item.key === 'students'
                     ? () => setSlotFlowStep('students')
                     : item.key === 'schedule'
                       ? handleGoScheduleStep
-                      : handleGoReviewStep;
+                      : item.key === 'review'
+                        ? handleGoReviewStep
+                        : () => setSlotFlowStep('completed');
 
                 return (
                   <button
@@ -734,16 +762,62 @@ export default function SlotList({ initialSlots }: { initialSlots: ReservationSl
             </div>
           )}
 
+          {slotFlowStep === 'completed' && (
+            <div className="space-y-4">
+              {message && (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                  {message}
+                </div>
+              )}
+
+              <CompletedReservations
+                groupedReservations={groupedReservations.map((group) => ({
+                  studentName: group.studentName,
+                  schoolName: group.schoolName,
+                  slotIds: group.slotIds,
+                }))}
+                slotMap={slotMap}
+                loading={loading}
+                hasDifferentCompletedSchedules={hasDifferentCompletedSchedules}
+                commonCompletedSlotIds={commonCompletedSlotIds}
+                formatSelectedSlot={formatSelectedSlot}
+                onRefresh={() => { void Promise.all([refreshSlots(), refreshMyReservations()]); }}
+                onCancel={handleCancelStudentReservations}
+              />
+
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSlotFlowStep('students')}
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
+                >
+                  다른 학생 선택
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep('profile')}
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
+                >
+                  학생 정보 수정
+                </button>
+              </div>
+            </div>
+          )}
+
           {(slotFlowStep === 'schedule' || slotFlowStep === 'review') && (
             <div className="grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)] 2xl:grid-cols-[340px_minmax(0,1fr)] xl:items-start">
               <div className="space-y-4 xl:sticky xl:top-28">
-                <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-semibold text-slate-900">선택한 학생</p>
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600">{selectedStudents.length}명</span>
-                  </div>
-                  <p className="mt-1 text-sm text-slate-600">{selectedStudents.map((student) => student.studentName).join(', ') || '선택 없음'}</p>
-                </div>
+                <StudentSelector
+                  students={profile.students}
+                  selectedStudentNames={selectedStudentNames}
+                  groupedReservations={groupedReservations}
+                  slotMap={slotMap}
+                  loading={loading}
+                  onToggleStudent={toggleStudent}
+                  onCancelStudentReservations={handleCancelStudentReservations}
+                  onEditStudents={() => setStep('profile')}
+                  formatSelectedSlot={formatSelectedSlot}
+                />
 
                 <div className="hidden lg:block">
                   <SelectionSummaryBar

@@ -56,6 +56,7 @@ export default function CompletedReservations({
         {groupedReservations.map((group) => (
           <details
             key={group.studentName}
+            open
             className="rounded-2xl border border-amber-200 bg-white p-4"
           >
             <div className="flex items-start gap-3">
