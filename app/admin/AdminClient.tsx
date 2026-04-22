@@ -1,6 +1,6 @@
 'use client';
 
-import React, { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
+import React, { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Reservation, ReservationSlot } from '@/lib/types';
 import { compareSlots, formatKoreanDate, getSlotLabel, getSlotTimeText } from '@/lib/utils';
 import { getSlotTone } from '@/lib/slotTone';
@@ -221,6 +221,7 @@ export default function AdminClient({
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [deletingSlotId, setDeletingSlotId] = useState<string | null>(null);
   const [deletingReservationId, setDeletingReservationId] = useState<string | null>(null);
+  const createFormRef = useRef<HTMLDivElement | null>(null);
 
   const isBusy =
     submitting ||
@@ -646,6 +647,24 @@ export default function AdminClient({
     }
   }
 
+
+  function resetCreateForm() {
+    setEditingId(null);
+    setDate('');
+    setLabel('');
+    setStartTime('');
+    setEndTime('');
+    setCapacity(4);
+    setOpenAt('');
+    setOpenImmediately(true);
+  }
+
+  function handleNewSlot() {
+    resetCreateForm();
+    clearFeedback();
+    createFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   async function handleDeleteReservation(id: string) {
     if (!confirm('정말 이 신청자를 삭제하시겠습니까?')) return;
     clearFeedback();
@@ -687,7 +706,8 @@ export default function AdminClient({
       <div className="space-y-6">
         <section className="space-y-6">
 
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="sticky top-3 z-20 rounded-2xl border border-slate-200 bg-white/95 px-3 py-3 shadow-sm backdrop-blur">
+            <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap gap-2">
               <SectionChip active={activeSection === 'schedules'} onClick={() => setActiveSection('schedules')} title="일정관리" />
               <SectionChip active={activeSection === 'applicants'} onClick={() => setActiveSection('applicants')} title="신청자관리" />
@@ -695,13 +715,14 @@ export default function AdminClient({
             {activeSection === 'applicants' && (
               <button type="button" onClick={() => setActiveSection('schedules')} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700">일정관리로 돌아가기</button>
             )}
+            </div>
           </div>
 
           {activeSection === 'schedules' && (
             <div className="space-y-5">
-              <div className="flex flex-wrap items-center justify-end gap-3">
+              <div ref={createFormRef} className="flex flex-wrap items-center justify-end gap-3">
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => setEditingId(null)} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700">신규 일정</button>
+                  <button type="button" onClick={handleNewSlot} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700">신규 일정</button>
                   <label className="inline-flex cursor-pointer items-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700">
                     엑셀 업로드
                     <input type="file" accept=".xlsx,.xls" onChange={handleFileChange} className="hidden" />

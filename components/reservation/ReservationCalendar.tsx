@@ -139,7 +139,7 @@ export default function ReservationCalendar({
   }, [visibleMonth, slotByDate, blockedDates, todayKey, activeDate, requiredSeats]);
 
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-3 shadow-sm md:p-4">
+    <section className="max-w-full overflow-hidden rounded-3xl border border-slate-200 bg-white p-3 shadow-sm md:p-4">
       <div className="flex items-center justify-between gap-3">
         <button
           type="button"
@@ -178,7 +178,7 @@ export default function ReservationCalendar({
                   setVisibleMonth(new Date(year, monthNumber - 1, 1));
                 }}
                 className={cn(
-                  'rounded-full border px-3 py-1.5 text-xs',
+                  'min-w-0 rounded-full border px-3 py-1.5 text-xs',
                   isCurrent ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-slate-50 text-slate-600'
                 )}
               >
@@ -189,7 +189,7 @@ export default function ReservationCalendar({
         </div>
       )}
 
-      <div className="mt-4 grid grid-cols-7 gap-y-2 text-center text-xs font-medium text-slate-500 md:text-sm">
+      <div className="mt-4 grid w-full grid-cols-7 gap-y-2 text-center text-xs font-medium text-slate-500 md:text-sm">
         {WEEKDAYS.map((weekday, index) => (
           <div key={weekday} className={index === 0 ? 'text-rose-500' : index === 6 ? 'text-blue-600' : ''}>
             {weekday}
@@ -197,7 +197,7 @@ export default function ReservationCalendar({
         ))}
       </div>
 
-      <div className="mt-2 grid grid-cols-7 gap-1.5 md:gap-2">
+      <div className="mt-2 grid w-full grid-cols-7 gap-1.5 md:gap-2">
         {days.map((day) => {
           const clickable = day.hasSlots;
           return (
@@ -207,7 +207,7 @@ export default function ReservationCalendar({
               disabled={!clickable}
               onClick={() => clickable && onSelectDate(day.date)}
               className={cn(
-                'h-11 rounded-xl border text-sm transition md:h-12',
+                'h-11 min-w-0 rounded-xl border text-sm transition md:h-12',
                 !day.inMonth && 'opacity-30',
                 !day.hasSlots && 'border-transparent bg-transparent text-slate-300',
                 day.hasSlots && day.isPast && 'border-slate-200 bg-slate-50 text-slate-400',
